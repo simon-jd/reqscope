@@ -1,24 +1,59 @@
 # reqscope: why was this vLLM request slow?
 
-A request-level CPU/GPU profiler for vLLM. It records three things on one
-clock:
-- every engine step and which requests it scheduled;
-- every kernel and copy, with the step that launched it;
-- every request's token times.
+When a request's tokens slow down in a batched LLM server, the cause is
+usually something that shared its engine steps: another request's prefill,
+a host-side stall, or the step's own GPU work. Serving metrics show that
+inter-token latency rose; GPU profilers show kernels, but not which requests
+a step served. reqscope records both sides of vLLM on one clock and answers,
+for each slow token: which engine step produced it, what else ran in that
+step, how long the GPU was busy, and whose work caused the excess.
 
-The clock comes with a measured bound on how far GPU timestamps can be off.
-Then `reqscope blame` answers the question an operator actually has: *these
-tokens were slow, and who caused it?*
+**How it works.** A vLLM 0.31.0 plugin records every engine step, the
+requests it scheduled and their phase, and each token's time and producing
+step. A CUPTI injection library (C++20, loaded with `CUDA_INJECTION64_PATH`,
+no change to vLLM or PyTorch) tags every kernel and copy with the step that
+launched it, on a clock with a measured error bound; it is optional.
+`reqscope blame` joins the records by ids and splits each slow gap's excess
+over the prefill work co-scheduled in the step that produced the token.
 
-- **Collector:** a CUPTI injection library (C++20), loaded with
-  `CUDA_INJECTION64_PATH`. No change to vLLM, PyTorch or the application.
-- **vLLM plugin:** wraps the model runner and scheduler of vLLM 0.31.0 to
-  emit steps, step membership and request lifecycles.
-- **Analyzer and CLI:** `blame`, `explain`, `analyze`, `diff`,
-  `export-perfetto`, `dump`.
+**Results** (Qwen2.5-1.5B-Instruct on one RTX 4090, vLLM 0.31.0, chunked
+prefill, async scheduling):
+- **It finds culprits it never saw.** Six 6,000-token prompts interrupt 16
+  decodes. Blame's top six culprits are exactly those prompts; per slow
+  engine step, precision is 1.00 and recall 0.82 against the client's ground
+  truth, and the 11 of 30 slow steps with no co-scheduled prefill are left
+  unexplained, not guessed.
+- **The verdict does not need GPU tracing; the evidence does.** With CUPTI
+  off, blame names the same 18 prefill steps (precision 1.00 in every run),
+  because the verdict comes from step membership. CUPTI adds the why: those
+  steps were 49–50 ms of GPU work, while the unexplained ones were ordinary
+  6 ms decode steps in 9–10 ms gaps, so their delay was on the host.
+- **Recording steps is free; tracing every kernel is not.** Under open-loop
+  load at 8–24 requests/s, the plugin alone and the light collector stay
+  within 1% of no collector on TPOT p50 and p99. Per-kernel trace mode adds
+  2–3% at 8 requests/s, 18% (p50) and 27% (p99) at 16, and at 24 the
+  server falls behind (median TTFT 26 to 314 ms). Tracing also created
+  slow decode steps of its own in the experiment (71 and 129, against 27 and
+  33 with CUPTI off).
 
-**Experiment.** 16 requests decode continuously on Qwen2.5-1.5B (RTX 4090,
-vLLM 0.31.0, chunked prefill, CUDA graphs, async scheduling). Six 6,000-token
+Limits: one model on one GPU at TP = 1, one validated cause (prefill
+interference), vLLM 0.31.0 and CUDA 13.2 only, and a shared host whose load
+varied between runs; see [Limitations](#limitations).
+
+![Slow engine steps over the run: the steps blamed on a long prompt sit in
+its prefill window; the unexplained ones are 8-15 ms decode
+steps](docs/slow-steps.svg)
+
+- **vLLM plugin** (`adapter/vllm`): wraps the V2 model runner and the
+  scheduler to emit steps, step membership and request lifecycles.
+- **Collector** (`collector/`): the CUPTI library, plus a plugin-only mode
+  with CUPTI never started.
+- **Analyzer and CLI** (`analyzer/`, `cli/`): `blame`, `explain`, `analyze`,
+  `diff`, `export-perfetto`, `dump`.
+
+## The interference experiment
+
+16 requests decode continuously, each to 4,000 tokens. Six 6,000-token
 prompts arrive, one every 3 s, and their prefill chunks share engine steps
 with the decodes. The client records when each long prompt was in prefill
 (sent until first token). The analyzer never sees that ground truth.
@@ -34,22 +69,18 @@ with the decodes. The client records when each long prompt was in prefill
 | CPU/GPU clock bound, measured in the same run | **280 µs** (59 paired probes, no violations) |
 | Records captured / lost | 2.06M records, 1.69M of them GPU activities (99.0% linked to steps) / **0 lost** |
 
-![Slow engine steps over the run: the steps blamed on a long prompt sit in
-its prefill window; the unexplained ones are 8-15 ms decode
-steps](docs/slow-steps.svg)
-
 The 16 decodes run in lockstep, so one slow engine step shows up as up to
 16 slow gaps: the 465 slow decode gaps come from 30 steps
 ([results/interference-steps.json](results/interference-steps.json) scores
 them per step). The 11 unexplained steps are plain decode steps: the 15
 other decodes co-scheduled, no prefill, and 4.6–6.6 ms of GPU busy time,
 about an ordinary 5.4 ms decode step. The rest of each 8–15 ms gap, 2–10 ms,
-is not GPU work of that step. Three of them have long host spans (5.7–7.4 ms from
-`execute_model` to the end of `sample_tokens`); the other eight have short
-ones (1.0–3.5 ms), so their delay lies between steps, in scheduling or
-output processing, which `blame` does not attribute and the BPF probe (not
-used here) would observe. The four inside a prefill window are within two
-steps of that prompt's prefill chunks.
+is not GPU work of that step. Three of them have long host spans (5.7–7.4
+ms from `execute_model` to the end of `sample_tokens`); the other eight
+have short ones (1.0–3.5 ms), so their delay lies between steps, in
+scheduling or output processing, which `blame` does not attribute and the
+BPF probe (not used here) would observe. The four inside a prefill window
+are within two steps of that prompt's prefill chunks.
 
 "0 lost": the capture's sequence numbers are contiguous and it holds no
 `Loss` records. `blame` still reports `loss_records: 1` with `loss_count: 0`.
@@ -334,8 +365,17 @@ The tests run on CPU. They cover:
   prefill tokens. It does not model attention cost growing with context
   length.
 - **One experiment shape.** Prefill interference is validated end to end
-  against ground truth. Other causes are not: a co-running GPU job, or
-  preemption and recompute.
+  against ground truth, on one model and one GPU at TP = 1. Other causes
+  are not: a co-running GPU job, or preemption and recompute.
+- **Trace mode perturbs what it measures.** It added slow decode steps of
+  its own in the interference runs, by an amount that varied between runs
+  (30, 71 and 129 slow steps against 27 and 33 with CUPTI off), and it
+  slows a loaded server (open-loop table). Its per-kernel evidence is for
+  short captures at moderate load.
+- **A shared host.** The runs shared the machine with other projects' jobs.
+  Every run held the GPU lock those jobs share, but host load varied
+  (1-minute load average 1.1–4.7 in the open-loop runs, about 9–10 in the
+  first CUPTI-off pair), and host load changes host-side timings.
 - **The BPF scheduler probe** (`bpf/`) needs CAP_BPF and was not used here,
   so host-side CPU stalls are reported as `between_steps`, without
   run-queue evidence.
