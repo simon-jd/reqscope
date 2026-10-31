@@ -149,22 +149,44 @@ analyzer from before these changes.
 | A quarter of `blame`'s memory | It built the dependency graph that only `analyze` reports | Built only when reported |
 | `analyze` grew with the square of the trace | Every elementary interval of a request rescanned all of its GPU activities, every token all intervals, every step all activities and syncs | One sweep over the intervals, a merge for the tokens, per-producer indexes |
 
-## Run it
+## Reproduce
+
+Needs Linux, one NVIDIA GPU, the CUDA 13.2 toolkit (for CUPTI API 130202),
+CMake 3.20 or newer, a C++20 compiler and Python 3.12. The versions behind
+the committed results are in
+[results/environment.json](results/environment.json).
 
 ```sh
+git clone https://github.com/simon-jd/reqscope.git && cd reqscope
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-REQSCOPE_BIN=build/reqscope REQSCOPE_LIBRARY=build/libreqscope.so python3 -m unittest discover -s tests
+ctest --test-dir build --output-on-failure        # C++ and Python tests, CPU only
 
-# The experiment above (vLLM 0.31.0 in this project's environment; holds the GPU lock)
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r bench/requirements.txt && pip install -e adapter/vllm
+
+# Interference experiment: one vLLM server, a few minutes on the GPU.
+# The model is Qwen/Qwen2.5-1.5B-Instruct at a pinned revision.
 python bench/interference.py interference --mode trace --out results/raw/interference
-REQSCOPE_TRACE_BUDGET_MIB=8192 python bench/score.py interference results/raw/interference  # above the reader's 2 GiB default
+python bench/score.py interference results/raw/interference
 python bench/score_steps.py results/raw/interference
+
+# Closed-loop overhead, one server per collector mode
 for m in off light trace; do python bench/interference.py overhead --mode $m --out results/raw/overhead-$m; done
 python bench/score.py overhead results/raw/overhead-{off,light,trace}
 python bench/capture_stats.py results/raw/interference results/raw/overhead-{light,trace}
 ```
 
-`bench/interference.py` shows the whole setup:
+`bench/interference.py --help` lists every setting, each with a default
+that needs no local path: `--cuda` (toolkit root, default `$CUDA_HOME` or
+`/usr/local/cuda`), `--build` (default `build/`), `--python` (the
+environment with vLLM and the plugin, default the running interpreter),
+`--model` and `--revision` (a Hub id, or a local model directory),
+`--hf-home`, `--offline`, `--cache-root`, `--gpu-memory-utilization`
+(default 0.6) and `--lock FILE`, which holds that file's flock from server
+start to shutdown so runs on a shared GPU do not overlap. `bench/score.py`
+raises the trace reader's budget to 8 GiB, which a 0.9 GB capture needs.
+
+The script also shows the whole setup:
 - `CUDA_INJECTION64_PATH` and `LD_PRELOAD` of the CUPTI library;
 - `VLLM_PLUGINS=reqscope`;
 - `REQSCOPE_MODE` and `REQSCOPE_OUTPUT`;
@@ -174,9 +196,11 @@ Results from the runs above are in `results/`;
 [results/README.md](results/README.md) lists which run and script produced
 each file.
 
-The 146 tests run on CPU. They cover:
+The tests run on CPU. They cover:
 - the format reader;
-- the collector's C ABI, against a manual backend;
+- the collector's C ABI, against a manual backend, including a writer
+  failure under a file-size limit;
+- the clock probe, against a fake CUDA driver;
 - the analyzer: linking, clock probes, blame and decomposition;
 - the vLLM plugin's contracts, against stubbed runner and scheduler
   classes;

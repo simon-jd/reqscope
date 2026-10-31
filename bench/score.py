@@ -12,6 +12,10 @@ interference
 
 overhead
     Throughput, TTFT and TPOT per collector mode, from the client's timings.
+
+`reqscope` is $REQSCOPE_BIN, else build/reqscope. Reading a large capture
+needs more than the reader's default 2 GiB budget, so the trace budget
+defaults to $REQSCOPE_TRACE_BUDGET_MIB or 8192 MiB.
 """
 from __future__ import annotations
 
@@ -25,10 +29,13 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get("REQSCOPE_BIN", ROOT / "build/reqscope"))
+TRACE_BUDGET_MIB = os.environ.get("REQSCOPE_TRACE_BUDGET_MIB", "8192")
 
 
 def reqscope(*args: str) -> dict:
-    return json.loads(subprocess.run([str(BIN), *args], check=True, capture_output=True, text=True).stdout)
+    env = {**os.environ, "REQSCOPE_TRACE_BUDGET_MIB": TRACE_BUDGET_MIB}
+    return json.loads(subprocess.run([str(BIN), *args], check=True, capture_output=True, text=True,
+                                     env=env).stdout)
 
 
 def percentile(values: list[float], q: float) -> float:

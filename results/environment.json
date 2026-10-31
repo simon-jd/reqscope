@@ -1,0 +1,20 @@
+{
+  "python": "3.12.15",
+  "packages": {
+    "vllm": "0.31.0",
+    "torch": "2.13.0",
+    "transformers": "5.17.0",
+    "aiohttp": "3.14.5",
+    "reqscope-vllm": "0.1.0"
+  },
+  "torch_cuda": "13.0",
+  "cuda_root": "/usr/local/cuda-13.2",
+  "cuda_toolkit": "13.2.2",
+  "cupti": "13.2.86",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "driver": "595.99.02",
+  "gpu_memory": "24564 MiB",
+  "kernel": "7.0.0-38-generic",
+  "cpu": "13th Gen Intel(R) Core(TM) i9-13900K",
+  "cpus": 32
+}

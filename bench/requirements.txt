@@ -1,0 +1,6 @@
+# Python 3.12 environment the benchmarks ran in (results/environment.json).
+# Install the plugin into the same environment: pip install -e adapter/vllm
+vllm==0.31.0
+torch==2.13.0
+transformers==5.17.0
+aiohttp==3.14.5

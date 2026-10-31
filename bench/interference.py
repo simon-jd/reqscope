@@ -15,13 +15,17 @@ overhead
     32 closed-loop clients (512-token prompts, 128 output tokens) for 60 s,
     with no collector, the light collector or the trace collector.
 
-Runs vLLM 0.31.0 from this project's environment (see README), holding the
-machine-wide GPU lock for the whole run.
+The server is vLLM 0.31.0 from the Python environment given by --python
+(default: this interpreter), with the reqscope plugin installed in it (see
+README). Every path has a flag; nothing is machine-specific. With --lock,
+the run holds that file's flock for the whole run, from server start to
+shutdown.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import fcntl
 import json
 import os
@@ -30,48 +34,64 @@ import random
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-PYTHON = ROOT / ".runtime/reqscope-cpython-3.12.13-021044895e95/env/bin/python"
-MODEL = ROOT / ".cache/huggingface/hub/models--Qwen--Qwen2.5-1.5B-Instruct/snapshots/989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
-LIBRARY = ROOT / "build/libreqscope.so"
-CUPTI = Path("/usr/local/cuda-13.2/lib64/libcupti.so.13")
-PORT = 8123
+MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
+REVISION = "989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
+CUPTI_NAMES = ("lib64/libcupti.so.13", "lib64/libcupti.so", "extras/CUPTI/lib64/libcupti.so")
 
 
-def server(mode: str, out: Path) -> subprocess.Popen:
+def cupti_library(cuda: Path) -> Path:
+    for name in CUPTI_NAMES:
+        if (cuda / name).exists():
+            return cuda / name
+    raise SystemExit(f"no libcupti under {cuda}; pass --cuda with the CUDA 13.2 toolkit root")
+
+
+def server(args, out: Path) -> subprocess.Popen:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("REQSCOPE_", "OTEL_", "VLLM_"))}
-    cache = ROOT / ".cache/runtime"
-    env.update({"HF_HOME": str(ROOT / ".cache/huggingface"), "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-                "XDG_CACHE_HOME": str(cache), "VLLM_CACHE_ROOT": str(cache / "vllm"),
-                "VLLM_USE_V2_MODEL_RUNNER": "1", "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
-                "VLLM_NO_USAGE_STATS": "1", "PYTHONUNBUFFERED": "1", "CUDA_VISIBLE_DEVICES": "0",
-                "LD_PRELOAD": str(CUPTI)})
-    if mode != "off":
-        env.update({"CUDA_INJECTION64_PATH": str(LIBRARY), "REQSCOPE_LIBRARY": str(LIBRARY),
-                    "REQSCOPE_ENABLED": "1", "VLLM_PLUGINS": "reqscope", "REQSCOPE_MODE": mode,
+    env.update({"VLLM_USE_V2_MODEL_RUNNER": "1", "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+                "VLLM_NO_USAGE_STATS": "1", "PYTHONUNBUFFERED": "1",
+                "CUDA_VISIBLE_DEVICES": args.device,
+                # libcupti is preloaded in every mode, so all modes load the same libraries.
+                "LD_PRELOAD": str(cupti_library(args.cuda))})
+    if args.hf_home:
+        env["HF_HOME"] = str(args.hf_home)
+    if args.offline:
+        env.update({"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"})
+    if args.cache_root:
+        env.update({"XDG_CACHE_HOME": str(args.cache_root), "VLLM_CACHE_ROOT": str(args.cache_root / "vllm")})
+    library = args.build / "libreqscope.so"
+    if args.mode != "off":
+        if not library.is_file():
+            raise SystemExit(f"{library} not found; build reqscope first (README) or pass --build")
+        env.update({"CUDA_INJECTION64_PATH": str(library), "REQSCOPE_LIBRARY": str(library),
+                    "REQSCOPE_ENABLED": "1", "VLLM_PLUGINS": "reqscope", "REQSCOPE_MODE": args.mode,
                     "REQSCOPE_OUTPUT": str(out / "capture"), "REQSCOPE_RING_SECONDS": "3600",
-                    "REQSCOPE_RING_BYTES": str(8 << 30), "REQSCOPE_QUEUE_SLOTS": "1024",
+                    "REQSCOPE_RING_BYTES": str(args.ring_bytes), "REQSCOPE_QUEUE_SLOTS": "1024",
                     "REQSCOPE_CUPTI_BUFFERS": "256"})
-    command = [str(PYTHON), "-B", str(ROOT / ".venv/bin/vllm"), "serve", str(MODEL),
-               "--host", "127.0.0.1", "--port", str(PORT), "--served-model-name", "m",
+    # A local model directory is used as is; a Hub id is pinned to --revision.
+    pinned = [] if Path(args.model).is_dir() else ["--revision", args.revision, "--tokenizer-revision", args.revision]
+    command = [str(args.python), "-B", "-m", "vllm.entrypoints.cli.main", "serve", args.model, *pinned,
+               "--host", "127.0.0.1", "--port", str(args.port), "--served-model-name", "m",
                "--enable-request-id-headers", "--distributed-executor-backend", "uni", "--async-scheduling",
                "--dtype", "bfloat16", "--max-model-len", "8192", "--max-num-seqs", "32",
-               "--max-num-batched-tokens", "2048", "--gpu-memory-utilization", "0.6",
+               "--max-num-batched-tokens", "2048", "--gpu-memory-utilization", str(args.gpu_memory_utilization),
                "--no-enable-prefix-caching", "--seed", "42"]
     log = open(out / "server.log", "w")
     return subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
 
-def wait_ready(process: subprocess.Popen, timeout: float = 600) -> None:
+def wait_ready(process: subprocess.Popen, port: int, timeout: float = 600) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         if process.poll() is not None:
             raise RuntimeError("vLLM exited during startup; see server.log")
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2):
                 return
         except OSError:
             time.sleep(2)
@@ -110,11 +130,11 @@ def flush_collectors(pid: int) -> int:
     return flushed
 
 
-async def stream(session, request_id: str, prompt: list[int], max_tokens: int) -> dict:
+async def stream(session, port: int, request_id: str, prompt: list[int], max_tokens: int) -> dict:
     body = {"model": "m", "prompt": prompt, "max_tokens": max_tokens, "ignore_eos": True,
             "temperature": 0.0, "stream": True}
     sent, chunks = time.monotonic_ns(), []
-    async with session.post(f"http://127.0.0.1:{PORT}/v1/completions", json=body,
+    async with session.post(f"http://127.0.0.1:{port}/v1/completions", json=body,
                             headers={"X-Request-Id": request_id}) as response:
         async for line in response.content:
             if line.startswith(b"data: ") and not line.startswith(b"data: [DONE]"):
@@ -126,69 +146,109 @@ def tokens(rng: random.Random, n: int) -> list[int]:
     return [rng.randrange(1000, 100_000) for _ in range(n)]
 
 
-async def interference(seed: int) -> list[dict]:
+async def interference(args) -> list[dict]:
     import aiohttp
-    rng = random.Random(seed)
+    rng = random.Random(args.seed)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=900)) as session:
-        decodes = [asyncio.create_task(stream(session, f"decode-{i}", tokens(rng, 128), 4000)) for i in range(16)]
+        decodes = [asyncio.create_task(stream(session, args.port, f"decode-{i}", tokens(rng, 128), 4000))
+                   for i in range(16)]
         longs = []
         await asyncio.sleep(2.0)
         for j in range(6):
-            longs.append(asyncio.create_task(stream(session, f"long-{j}", tokens(rng, 6000), 1)))
+            longs.append(asyncio.create_task(stream(session, args.port, f"long-{j}", tokens(rng, 6000), 1)))
             await asyncio.sleep(3.0)
         return list(await asyncio.gather(*decodes, *longs))
 
 
-async def overhead(seed: int, seconds: float = 60.0) -> list[dict]:
+async def overhead(args) -> list[dict]:
     import aiohttp
-    rng = random.Random(seed)
-    stop = time.monotonic() + seconds
+    rng = random.Random(args.seed)
+    stop = time.monotonic() + args.seconds
     results: list[dict] = []
 
     async def client(k: int):
         i = 0
         while time.monotonic() < stop:
-            results.append(await stream(session, f"load-{k}-{i}", tokens(rng, 512), 128))
+            results.append(await stream(session, args.port, f"load-{k}-{i}", tokens(rng, 512), 128))
             i += 1
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=900)) as session:
         await asyncio.gather(*(client(k) for k in range(32)))
     return results
 
 
-def main() -> None:
+async def stream_warmup(port: int) -> None:
+    import aiohttp
+    async with aiohttp.ClientSession() as session:
+        await stream(session, port, "warmup", list(range(1000, 1064)), 8)
+
+
+@contextlib.contextmanager
+def gpu_lock(path: Path | None):
+    if path is None:
+        yield
+        return
+    with open(path, "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("experiment", choices=["interference", "overhead"])
     parser.add_argument("--mode", choices=["off", "light", "trace"], default="trace")
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True, help="new run directory")
     parser.add_argument("--seed", type=int, default=1)
-    args = parser.parse_args()
+    parser.add_argument("--seconds", type=float, default=60.0, help="overhead load duration")
+    parser.add_argument("--model", default=os.environ.get("REQSCOPE_BENCH_MODEL", MODEL),
+                        help="Hugging Face model id, or a local model directory (e.g. a cached snapshot)")
+    parser.add_argument("--revision", default=os.environ.get("REQSCOPE_BENCH_REVISION", REVISION),
+                        help="Hub revision for a model id")
+    parser.add_argument("--hf-home", type=Path, default=None, help="HF_HOME for the server (default: inherited)")
+    parser.add_argument("--offline", action="store_true", help="use only the local Hugging Face cache")
+    parser.add_argument("--cache-root", type=Path, default=None, help="vLLM/torch compile cache directory")
+    parser.add_argument("--python", type=Path, default=Path(sys.executable),
+                        help="interpreter of the environment with vLLM and the plugin")
+    parser.add_argument("--cuda", type=Path, default=Path(os.environ.get("CUDA_HOME", "/usr/local/cuda")),
+                        help="CUDA toolkit root that holds libcupti")
+    parser.add_argument("--build", type=Path, default=ROOT / "build", help="reqscope build directory")
+    parser.add_argument("--lock", type=Path, default=os.environ.get("REQSCOPE_GPU_LOCK"),
+                        help="flock this file for the whole run (default: no lock)")
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.6)
+    parser.add_argument("--device", default="0", help="CUDA_VISIBLE_DEVICES for the server")
+    parser.add_argument("--port", type=int, default=8123)
+    parser.add_argument("--ring-bytes", type=int, default=8 << 30, help="collector ring size on disk")
+    args = parser.parse_args(argv)
+    if not 0 < args.gpu_memory_utilization <= 0.95:
+        parser.error("--gpu-memory-utilization must be in (0, 0.95]")
+    return args
+
+
+def main() -> None:
+    args = parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
-    with open("/var/tmp/rtx4090.lock", "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        process = server(args.mode, args.out)
+    run = {"interference": interference, "overhead": overhead}[args.experiment]
+    with gpu_lock(args.lock):
+        process = server(args, args.out)
         try:
-            wait_ready(process)
-            asyncio.run(stream_warmup())
+            wait_ready(process, args.port)
+            asyncio.run(stream_warmup(args.port))
             started = time.monotonic_ns()
-            results = asyncio.run(interference(args.seed) if args.experiment == "interference" else overhead(args.seed))
+            results = asyncio.run(run(args))
             ended = time.monotonic_ns()
             if args.mode != "off" and not flush_collectors(process.pid):
                 raise RuntimeError("no collector control socket found under the server")
         finally:
-            os.killpg(process.pid, signal.SIGINT)
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGINT)
             try:
                 process.wait(timeout=120)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
-    (args.out / "client.json").write_text(json.dumps({"experiment": args.experiment, "mode": args.mode,
-        "seed": args.seed, "started_ns": started, "ended_ns": ended, "results": results}))
+    (args.out / "client.json").write_text(json.dumps({
+        "experiment": args.experiment, "mode": args.mode, "seed": args.seed,
+        "model": args.model, "revision": args.revision, "gpu_memory_utilization": args.gpu_memory_utilization,
+        "started_ns": started, "ended_ns": ended, "results": results}))
     print(args.out)
-
-
-async def stream_warmup() -> None:
-    import aiohttp
-    async with aiohttp.ClientSession() as session:
-        await stream(session, "warmup", list(range(1000, 1064)), 8)
 
 
 if __name__ == "__main__":
