@@ -33,12 +33,21 @@
   "slow_steps_blamed_only_on_other_requests": 1,
   "slow_steps_unexplained": 11,
   "of_those_inside_a_long_prompt_window": 4,
+  "per_step": {
+    "precision": 1.0,
+    "recall": 0.8182
+  },
+  "per_gap": {
+    "precision": 1.0,
+    "recall": 0.8182
+  },
   "steps": [
     {
       "step_id": 17,
       "slow_gaps": 1,
       "gap_ms_median": 35.03,
       "gpu_busy_ms": 39.89,
+      "host_ms": 6.92,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 15
@@ -48,6 +57,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 8.73,
       "gpu_busy_ms": 4.59,
+      "host_ms": 1.05,
       "long_prompt_windows": [
         "long-0"
       ],
@@ -59,6 +69,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 37.45,
       "gpu_busy_ms": 41.09,
+      "host_ms": 8.45,
       "long_prompt_windows": [
         "long-0"
       ],
@@ -72,6 +83,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 47.23,
       "gpu_busy_ms": 46.98,
+      "host_ms": 5.46,
       "long_prompt_windows": [
         "long-0"
       ],
@@ -85,6 +97,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 51.0,
       "gpu_busy_ms": 50.52,
+      "host_ms": 17.09,
       "long_prompt_windows": [
         "long-0"
       ],
@@ -98,6 +111,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 40.03,
       "gpu_busy_ms": 41.79,
+      "host_ms": 6.82,
       "long_prompt_windows": [
         "long-1"
       ],
@@ -111,6 +125,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 47.95,
       "gpu_busy_ms": 47.63,
+      "host_ms": 5.54,
       "long_prompt_windows": [
         "long-1"
       ],
@@ -124,6 +139,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 51.83,
       "gpu_busy_ms": 51.64,
+      "host_ms": 18.09,
       "long_prompt_windows": [
         "long-1"
       ],
@@ -137,6 +153,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 11.62,
       "gpu_busy_ms": 5.0,
+      "host_ms": 7.44,
       "long_prompt_windows": [
         "long-1"
       ],
@@ -148,6 +165,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 41.92,
       "gpu_busy_ms": 42.42,
+      "host_ms": 5.96,
       "long_prompt_windows": [
         "long-2"
       ],
@@ -161,6 +179,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 48.88,
       "gpu_busy_ms": 48.55,
+      "host_ms": 5.48,
       "long_prompt_windows": [
         "long-2"
       ],
@@ -174,6 +193,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 52.69,
       "gpu_busy_ms": 52.51,
+      "host_ms": 20.76,
       "long_prompt_windows": [
         "long-2"
       ],
@@ -187,6 +207,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 42.17,
       "gpu_busy_ms": 43.11,
+      "host_ms": 6.36,
       "long_prompt_windows": [
         "long-3"
       ],
@@ -200,6 +221,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 49.28,
       "gpu_busy_ms": 49.03,
+      "host_ms": 8.14,
       "long_prompt_windows": [
         "long-3"
       ],
@@ -213,6 +235,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 53.27,
       "gpu_busy_ms": 52.99,
+      "host_ms": 6.51,
       "long_prompt_windows": [
         "long-3"
       ],
@@ -226,6 +249,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 43.72,
       "gpu_busy_ms": 44.05,
+      "host_ms": 6.07,
       "long_prompt_windows": [
         "long-4"
       ],
@@ -239,6 +263,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 49.91,
       "gpu_busy_ms": 49.71,
+      "host_ms": 5.55,
       "long_prompt_windows": [
         "long-4"
       ],
@@ -252,6 +277,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 54.1,
       "gpu_busy_ms": 53.78,
+      "host_ms": 20.04,
       "long_prompt_windows": [
         "long-4"
       ],
@@ -265,6 +291,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 13.22,
       "gpu_busy_ms": 5.79,
+      "host_ms": 5.74,
       "long_prompt_windows": [
         "long-4"
       ],
@@ -276,6 +303,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 10.13,
       "gpu_busy_ms": 6.3,
+      "host_ms": 1.44,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0
@@ -285,6 +313,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 10.75,
       "gpu_busy_ms": 5.93,
+      "host_ms": 6.71,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0
@@ -294,6 +323,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 15.45,
       "gpu_busy_ms": 5.92,
+      "host_ms": 1.1,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0
@@ -303,6 +333,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 10.71,
       "gpu_busy_ms": 5.98,
+      "host_ms": 1.22,
       "long_prompt_windows": [
         "long-5"
       ],
@@ -314,6 +345,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 41.92,
       "gpu_busy_ms": 46.24,
+      "host_ms": 10.39,
       "long_prompt_windows": [
         "long-5"
       ],
@@ -327,6 +359,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 51.91,
       "gpu_busy_ms": 51.54,
+      "host_ms": 7.94,
       "long_prompt_windows": [
         "long-5"
       ],
@@ -340,6 +373,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 56.09,
       "gpu_busy_ms": 55.98,
+      "host_ms": 25.56,
       "long_prompt_windows": [
         "long-5"
       ],
@@ -353,6 +387,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 9.87,
       "gpu_busy_ms": 6.37,
+      "host_ms": 2.81,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0
@@ -362,6 +397,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 8.15,
       "gpu_busy_ms": 6.08,
+      "host_ms": 2.22,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0
@@ -371,6 +407,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 8.44,
       "gpu_busy_ms": 6.07,
+      "host_ms": 3.53,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0
@@ -380,6 +417,7 @@
       "slow_gaps": 16,
       "gap_ms_median": 9.21,
       "gpu_busy_ms": 6.55,
+      "host_ms": 1.05,
       "long_prompt_windows": [],
       "blamed_long_prompts": [],
       "blamed_other_requests": 0

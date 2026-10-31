@@ -26,7 +26,7 @@ with the decodes. The client records when each long prompt was in prefill
 | What `reqscope blame` reported | |
 |---|---|
 | Top six culprits by excess latency caused | **exactly the six long prompts** |
-| Slow engine steps inside a long prompt's prefill window that were blamed on that prompt | **18 of 22** (288 of 352 slow decode gaps) |
+| Per slow engine step: precision / recall of "blamed on the long prompt whose prefill window it is in" | **1.00 / 0.82** (18 of 18 / 18 of 22 steps; per slow decode gap 288 of 288 / 288 of 352) |
 | Slow steps left unexplained (no co-scheduled prefill) | **11 of 30**, 4 of them inside a prefill window |
 | Slow steps or gaps blamed on a long prompt outside every prefill window | **0** |
 | Share of all excess decode latency attributed to the long prompts | **92.9%** (other requests 0.2%, unexplained 6.9%) |
@@ -37,10 +37,15 @@ with the decodes. The client records when each long prompt was in prefill
 The 16 decodes run in lockstep, so one slow engine step shows up as up to
 16 slow gaps: the 465 slow decode gaps come from 30 steps
 ([results/interference-steps.json](results/interference-steps.json) scores
-them per step). The 11 unexplained steps had 4.6–6.6 ms of GPU busy time
-against 8–15 ms gaps, and the four inside a prefill window are within two
-steps of that prompt's prefill chunks. `blame` does not say what slowed
-them.
+them per step). The 11 unexplained steps are plain decode steps: the 15
+other decodes co-scheduled, no prefill, and 4.6–6.6 ms of GPU busy time,
+about an ordinary 5.4 ms decode step. The rest of each 8–15 ms gap, 2–10 ms,
+is not GPU work of that step. Three of them have long host spans (5.7–7.4 ms from
+`execute_model` to the end of `sample_tokens`); the other eight have short
+ones (1.0–3.5 ms), so their delay lies between steps, in scheduling or
+output processing, which `blame` does not attribute and the BPF probe (not
+used here) would observe. The four inside a prefill window are within two
+steps of that prompt's prefill chunks.
 
 "0 lost": the capture's sequence numbers are contiguous and it holds no
 `Loss` records. `blame` still reports `loss_records: 1` with `loss_count: 0`.

@@ -7,8 +7,12 @@ client's ground truth in RUN/client.json. The 16 decodes run in lockstep,
 so one slow engine step shows up as up to 16 slow gaps; this groups the
 decode slow gaps by the step that produced the token and reports, per step:
 the long-prompt windows its gaps overlap, whom blame named, its GPU busy
-time and its gap. The long prompts' windows (sent until first token) are
-included so the result can be checked against blame.json alone.
+time, its host span and its gap. Precision and recall are given per step
+and per gap: precision is the share of steps (gaps) blamed on a long prompt
+that lie in that prompt's window, recall the share of in-window steps
+(gaps) that were blamed on that prompt. The long prompts' windows (sent
+until first token) are included so the result can be checked against
+blame.json alone.
 """
 from __future__ import annotations
 
@@ -31,17 +35,23 @@ def score(run: Path) -> dict:
         return next((w for w in windows if w in req_id), None)
 
     steps: dict[int, dict] = {}
-    gaps = 0
+    gaps = gap_blamed_long = gap_blamed_right = gap_inside = 0
     for row in blame["requests"]:
         if "decode-" not in row["req_id"]:
             continue
         for gap in row["slow_gaps"]:
             gaps += 1
+            overlapping = {w for w, (a, b) in windows.items() if gap["begin_ns"] < b and gap["end_ns"] > a}
+            named = {long_of(x["req_id"]) for x in gap["blamed"]} - {None}
+            gap_inside += bool(overlapping)
+            gap_blamed_long += bool(named)
+            gap_blamed_right += bool(named & overlapping)
             for step in gap["steps"]:
-                entry = steps.setdefault(step["step_id"], {"gaps": [], "busy": set(), "windows": set(),
-                                                           "long": set(), "other": set()})
+                entry = steps.setdefault(step["step_id"], {"gaps": [], "busy": set(), "host": set(),
+                                                           "windows": set(), "long": set(), "other": set()})
                 entry["gaps"].append(gap["gap_ns"])
                 entry["busy"].add(step["gpu_busy_ns"])
+                entry["host"].add(step["host_ns"])
                 entry["windows"] |= {w for w, (a, b) in windows.items() if gap["begin_ns"] < b and gap["end_ns"] > a}
                 for culprit in gap["blamed"]:
                     name = long_of(culprit["req_id"])
@@ -50,12 +60,18 @@ def score(run: Path) -> dict:
              "slow_gaps": len(e["gaps"]),
              "gap_ms_median": ms(statistics.median(e["gaps"])),
              "gpu_busy_ms": ms(max(e["busy"])),
+             "host_ms": ms(max(e["host"])),
              "long_prompt_windows": sorted(e["windows"]),
              "blamed_long_prompts": sorted(e["long"]),
              "blamed_other_requests": len(e["other"])}
             for step_id, e in sorted(steps.items())]
     inside = [r for r in rows if r["long_prompt_windows"]]
     unexplained = [r for r in rows if not r["blamed_long_prompts"] and not r["blamed_other_requests"]]
+    blamed_long = [r for r in rows if r["blamed_long_prompts"]]
+    right = [r for r in blamed_long if set(r["long_prompt_windows"]) & set(r["blamed_long_prompts"])]
+
+    def ratio(a: int, b: int) -> float | None:
+        return round(a / b, 4) if b else None
     return {
         "long_prompt_windows_ns": {k: list(v) for k, v in sorted(windows.items())},
         "decode_slow_gaps": gaps,
@@ -69,6 +85,8 @@ def score(run: Path) -> dict:
             sum(bool(r["blamed_other_requests"]) and not r["blamed_long_prompts"] for r in rows),
         "slow_steps_unexplained": len(unexplained),
         "of_those_inside_a_long_prompt_window": sum(bool(r["long_prompt_windows"]) for r in unexplained),
+        "per_step": {"precision": ratio(len(right), len(blamed_long)), "recall": ratio(len(right), len(inside))},
+        "per_gap": {"precision": ratio(gap_blamed_right, gap_blamed_long), "recall": ratio(gap_blamed_right, gap_inside)},
         "steps": rows,
     }
 
