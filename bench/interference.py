@@ -1,7 +1,8 @@
 """Can reqscope explain why decode tokens got slow? And what does it cost?
 
     python bench/interference.py interference --mode trace --out results/raw/interference
-    python bench/interference.py overhead --mode off|light|trace --out results/raw/overhead-off
+    python bench/interference.py overhead --mode off|plugin|light|trace --out results/raw/overhead-off
+    python bench/interference.py openloop --mode off|plugin|light|trace --rates 8,16,24 --out results/raw/openloop-off-r1
 
 interference
     16 decode streams generate 4,000 tokens each. Starting 2 s in, a
@@ -12,8 +13,18 @@ interference
     to find the culprits from step membership and GPU time alone.
 
 overhead
-    32 closed-loop clients (512-token prompts, 128 output tokens) for 60 s,
-    with no collector, the light collector or the trace collector.
+    32 closed-loop clients (512-token prompts, 128 output tokens) for 60 s.
+
+openloop
+    Poisson arrivals of the same requests at each rate in --rates (requests
+    per second), --seconds of arrivals per rate, on one server.
+
+Collector modes:
+    off     no plugin, no collector
+    plugin  the vLLM plugin with the collector's manual backend: steps,
+            membership and request lifecycles, no CUPTI
+    light   plugin + CUPTI injection, one record per CUDA graph launch
+    trace   plugin + CUPTI injection, one record per kernel
 
 The server is vLLM 0.31.0 from the Python environment given by --python
 (default: this interpreter), with the reqscope plugin installed in it (see
@@ -68,11 +79,14 @@ def server(args, out: Path) -> subprocess.Popen:
     if args.mode != "off":
         if not library.is_file():
             raise SystemExit(f"{library} not found; build reqscope first (README) or pass --build")
-        env.update({"CUDA_INJECTION64_PATH": str(library), "REQSCOPE_LIBRARY": str(library),
-                    "REQSCOPE_ENABLED": "1", "VLLM_PLUGINS": "reqscope", "REQSCOPE_MODE": args.mode,
+        env.update({"REQSCOPE_LIBRARY": str(library), "REQSCOPE_ENABLED": "1", "VLLM_PLUGINS": "reqscope",
                     "REQSCOPE_OUTPUT": str(out / "capture"), "REQSCOPE_RING_SECONDS": "3600",
-                    "REQSCOPE_RING_BYTES": str(args.ring_bytes), "REQSCOPE_QUEUE_SLOTS": "1024",
-                    "REQSCOPE_CUPTI_BUFFERS": "256"})
+                    "REQSCOPE_RING_BYTES": str(args.ring_bytes), "REQSCOPE_QUEUE_SLOTS": "1024"})
+        if args.mode == "plugin":
+            env["REQSCOPE_MODE"] = "manual"           # the plugin's records only; CUPTI is never started
+        else:
+            env.update({"CUDA_INJECTION64_PATH": str(library), "REQSCOPE_MODE": args.mode,
+                        "REQSCOPE_CUPTI_BUFFERS": "256"})
     # A local model directory is used as is; a Hub id is pinned to --revision.
     pinned = [] if Path(args.model).is_dir() else ["--revision", args.revision, "--tokenizer-revision", args.revision]
     command = [str(args.python), "-B", "-m", "vllm.entrypoints.cli.main", "serve", args.model, *pinned,
@@ -176,6 +190,33 @@ async def overhead(args) -> list[dict]:
     return results
 
 
+async def openloop(args) -> list[dict]:
+    """One block per rate: Poisson arrivals for --seconds, then wait for all of them."""
+    import aiohttp
+    blocks = []
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=900),
+                                     connector=aiohttp.TCPConnector(limit=0)) as session:
+        for rate in args.rates:
+            rng = random.Random(f"{args.seed}-{rate}")
+            pending, started = [], time.monotonic_ns()
+            arrival = time.monotonic()
+            stop = arrival + args.seconds
+            i = 0
+            while True:
+                arrival += rng.expovariate(rate)
+                if arrival >= stop:
+                    break
+                await asyncio.sleep(max(0.0, arrival - time.monotonic()))
+                pending.append(asyncio.create_task(
+                    stream(session, args.port, f"open-{rate:g}-{i}", tokens(rng, 512), 128)))
+                i += 1
+            results = list(await asyncio.gather(*pending))
+            blocks.append({"rate": rate, "seconds": args.seconds, "started_ns": started,
+                           "ended_ns": time.monotonic_ns(), "results": results})
+            await asyncio.sleep(2.0)
+    return blocks
+
+
 async def stream_warmup(port: int) -> None:
     import aiohttp
     async with aiohttp.ClientSession() as session:
@@ -194,11 +235,14 @@ def gpu_lock(path: Path | None):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("experiment", choices=["interference", "overhead"])
-    parser.add_argument("--mode", choices=["off", "light", "trace"], default="trace")
+    parser.add_argument("experiment", choices=["interference", "overhead", "openloop"])
+    parser.add_argument("--mode", choices=["off", "plugin", "light", "trace"], default="trace")
     parser.add_argument("--out", type=Path, required=True, help="new run directory")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--seconds", type=float, default=60.0, help="overhead load duration")
+    parser.add_argument("--seconds", type=float, default=None,
+                        help="load duration: 60 for overhead, 45 per rate for openloop")
+    parser.add_argument("--rates", default="8,16,24", help="openloop request rates per second")
+    parser.add_argument("--round", type=int, default=1, help="label recorded in client.json")
     parser.add_argument("--model", default=os.environ.get("REQSCOPE_BENCH_MODEL", MODEL),
                         help="Hugging Face model id, or a local model directory (e.g. a cached snapshot)")
     parser.add_argument("--revision", default=os.environ.get("REQSCOPE_BENCH_REVISION", REVISION),
@@ -218,6 +262,9 @@ def parse_args(argv=None):
     parser.add_argument("--port", type=int, default=8123)
     parser.add_argument("--ring-bytes", type=int, default=8 << 30, help="collector ring size on disk")
     args = parser.parse_args(argv)
+    args.rates = [float(r) for r in args.rates.split(",")]
+    if args.seconds is None:
+        args.seconds = 45.0 if args.experiment == "openloop" else 60.0
     if not 0 < args.gpu_memory_utilization <= 0.95:
         parser.error("--gpu-memory-utilization must be in (0, 0.95]")
     return args
@@ -226,7 +273,7 @@ def parse_args(argv=None):
 def main() -> None:
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
-    run = {"interference": interference, "overhead": overhead}[args.experiment]
+    run = {"interference": interference, "overhead": overhead, "openloop": openloop}[args.experiment]
     with gpu_lock(args.lock):
         process = server(args, args.out)
         try:
@@ -245,7 +292,7 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
     (args.out / "client.json").write_text(json.dumps({
-        "experiment": args.experiment, "mode": args.mode, "seed": args.seed,
+        "experiment": args.experiment, "mode": args.mode, "seed": args.seed, "round": args.round,
         "model": args.model, "revision": args.revision, "gpu_memory_utilization": args.gpu_memory_utilization,
         "started_ns": started, "ended_ns": ended, "results": results}))
     print(args.out)

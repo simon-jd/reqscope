@@ -2,6 +2,7 @@
 
     python bench/score.py interference results/raw/interference
     python bench/score.py overhead results/raw/overhead-{off,light,trace}
+    python bench/score.py openloop results/raw/openloop-*
 
 interference
     Runs `reqscope blame` on the capture, then checks
@@ -13,12 +14,18 @@ interference
 overhead
     Throughput, TTFT and TPOT per collector mode, from the client's timings.
 
+openloop
+    Per run and rate: throughput, TTFT and TPOT (p50 and p99). Then, per mode
+    and rate, the median over rounds with the range (min, max), and the change
+    of each median against mode "off".
+
 `reqscope` is $REQSCOPE_BIN, else build/reqscope. Reading a large capture
 needs more than the reader's default 2 GiB budget, so the trace budget
 defaults to $REQSCOPE_TRACE_BUDGET_MIB or 8192 MiB.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 import json
 import os
 from pathlib import Path
@@ -100,6 +107,15 @@ def interference(run: Path) -> dict:
     }
 
 
+def latency(done: list[dict], seconds: float) -> dict:
+    ttft = [r["chunk_ns"][0] - r["sent_ns"] for r in done]
+    tpot = [(r["chunk_ns"][-1] - r["chunk_ns"][0]) / (len(r["chunk_ns"]) - 1) for r in done]
+    return {"requests": len(done),
+            "output_tokens_per_s": round(sum(len(r["chunk_ns"]) for r in done) / seconds, 1),
+            "ttft_p50_ms": ms(percentile(ttft, 0.5)), "ttft_p99_ms": ms(percentile(ttft, 0.99)),
+            "tpot_p50_ms": ms(percentile(tpot, 0.5)), "tpot_p99_ms": ms(percentile(tpot, 0.99))}
+
+
 def overhead(runs: list[Path]) -> list[dict]:
     rows = []
     for run in runs:
@@ -115,11 +131,44 @@ def overhead(runs: list[Path]) -> list[dict]:
     return rows
 
 
+METRICS = ("output_tokens_per_s", "ttft_p50_ms", "ttft_p99_ms", "tpot_p50_ms", "tpot_p99_ms")
+
+
+def openloop(runs: list[Path]) -> dict:
+    rows = []
+    for run in runs:
+        client = json.loads((run / "client.json").read_text())
+        for block in client["results"]:
+            done = [r for r in block["results"] if len(r["chunk_ns"]) >= 2]
+            rows.append({"run": run.name, "mode": client["mode"], "round": client["round"], "rate": block["rate"],
+                         "sent": len(block["results"]),
+                         **latency(done, (block["ended_ns"] - block["started_ns"]) / 1e9)})
+    groups = defaultdict(list)
+    for row in rows:
+        groups[(row["rate"], row["mode"])].append(row)
+    summary = []
+    for (rate, mode), group in sorted(groups.items(), key=lambda item: (item[0][0], MODES.index(item[0][1]))):
+        entry = {"rate": rate, "mode": mode, "rounds": len(group)}
+        for metric in METRICS:
+            values = [row[metric] for row in group]
+            entry[metric] = {"median": round(statistics.median(values), 2), "min": min(values), "max": max(values)}
+        summary.append(entry)
+    for entry in summary:
+        base = next((e for e in summary if e["rate"] == entry["rate"] and e["mode"] == "off"), None)
+        if base and entry is not base:
+            entry["change_vs_off"] = {m: round(entry[m]["median"] / base[m]["median"] - 1, 4) for m in METRICS}
+    return {"runs": rows, "summary": summary}
+
+
+MODES = ["off", "plugin", "light", "trace"]
+
+
 def main() -> None:
-    if len(sys.argv) < 3 or sys.argv[1] not in ("interference", "overhead"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("interference", "overhead", "openloop"):
         sys.exit(__doc__)
     runs = [Path(p) for p in sys.argv[2:]]
-    result = interference(runs[0]) if sys.argv[1] == "interference" else overhead(runs)
+    result = {"interference": lambda: interference(runs[0]), "overhead": lambda: overhead(runs),
+              "openloop": lambda: openloop(runs)}[sys.argv[1]]()
     print(json.dumps(result, indent=2))
 
 
