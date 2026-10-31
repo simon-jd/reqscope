@@ -220,6 +220,7 @@ public:
     Json blame(const std::string& only, double slow_factor) const {
         Json rows = Json::array();
         std::map<std::string, Time> culprits;
+        Time recorded_steps = 0, fallback_steps = 0;
         for (const auto& [key, request] : requests_) {
             if (request.spans.empty()) continue;
             const Json& raw = *request.spans.front()->data;
@@ -230,6 +231,7 @@ public:
             // which is off by one step under async scheduling.
             const auto [tokens, producers, tokens_valid] = token_series(raw);
             if (!tokens_valid || tokens.size() < 3 || !std::is_sorted(tokens.begin(), tokens.end())) continue;
+            ++(producers.empty() ? fallback_steps : recorded_steps);
             std::vector<Time> gaps;
             for (std::size_t i = 1; i < tokens.size(); ++i) gaps.push_back(tokens[i] - tokens[i - 1]);
             std::vector<Time> sorted = gaps;
@@ -276,6 +278,7 @@ public:
                     {"excess_ns", excess}, {"steps", steps}, {"blamed", blamed}}));
             }
             rows.push_back(Json::object({{"req_id", id}, {"tokens", static_cast<Time>(tokens.size())},
+                {"producing_steps", producers.empty() ? "host_span_in_gap" : "recorded"},
                 {"median_gap_ns", median}, {"slow_gaps", slow}, {"excess_ns", excess_total},
                 {"unexplained_ns", unexplained}}));
         }
@@ -302,11 +305,61 @@ public:
         Json summary = Json::object({{"gpu_activities", static_cast<Time>(activities_.size())},
             {"linked_gpu_activities", linked}, {"untimed_gpu_activities", untimed},
             {"loss_records", static_cast<Time>(losses_.size())},
-            {"loss_count", loss_count_}});
+            {"loss_count", loss_count_},
+            {"requests_with_recorded_steps", recorded_steps},
+            {"requests_using_host_span_fallback", fallback_steps}});
+        Json trace = trace_status();
+        Json warnings = Json::array();
+        if (fallback_steps)
+            warnings.push_back(std::to_string(fallback_steps) + " of " + std::to_string(recorded_steps + fallback_steps) +
+                " requests have no recorded producing step for every token; their steps are those whose host span "
+                "ended inside the gap, which can be one step late under async scheduling");
+        if (str(trace, "status") == "Partial") {
+            std::string reasons;
+            for (const auto& [reason, count] : trace["issues_by_reason"].object_items())
+                reasons += (reasons.empty() ? "" : ", ") + reason + " (" + std::to_string(count.as_u64()) + ")";
+            warnings.push_back("trace is Partial: " + reasons);
+        }
+        if (untimed)
+            warnings.push_back(std::to_string(untimed) + " GPU activities have no timestamps, so step GPU busy time "
+                               "undercounts");
+        for (const auto& diagnostic : trace["collector_diagnostics"].array_items())
+            if (flag(diagnostic, "stopped"))
+                warnings.push_back(str(diagnostic, "source") + " stopped: " + str(diagnostic, "reason"));
         return Json::object({{"schema_version", 1}, {"slow_factor", slow_factor},
             {"method", "token gap above slow_factor x median; excess split over prefill tokens co-scheduled "
-                       "in the step that produced the token"},
-            {"summary", summary}, {"clocks", clocks}, {"requests", rows}, {"culprits", by}});
+                       "in the step that produced the token (recorded by the plugin; without it, the request's "
+                       "steps whose host span ended inside the gap)"},
+            {"summary", summary}, {"trace", trace}, {"warnings", warnings}, {"clocks", clocks},
+            {"requests", rows}, {"culprits", by}});
+    }
+
+    // How complete the input is: reader and analyzer diagnostics, losses by
+    // reason, and the Diagnostic records the collector or plugin wrote.
+    Json trace_status() const {
+        std::map<std::string, Time> issues;
+        Json first = Json::array();
+        auto note = [&](const Json& item) {
+            ++issues[str(item, "reason", "unknown")];
+            if (first.size() < 20) first.push_back(item);
+        };
+        for (const auto& item : trace_.diagnostics) note(item);
+        for (const auto& item : diagnostics_) note(item);
+        std::map<std::string, Time> by_reason;
+        for (const auto& loss : losses_) ++by_reason[loss.reason];
+        Json issue_counts = Json::object(), loss_counts = Json::object(), collector = Json::array();
+        for (const auto& [reason, count] : issues) issue_counts[reason] = count;
+        for (const auto& [reason, count] : by_reason) loss_counts[reason] = count;
+        for (const auto& record : records_)
+            if (record.type == "Diagnostic")
+                collector.push_back(Json::object({{"producer", record.producer},
+                    {"source", str(*record.data, "source")}, {"reason", str(*record.data, "reason")},
+                    {"stopped", flag(*record.data, "stopped")}}));
+        const bool partial = trace_.partial || !losses_.empty() || !diagnostics_.empty();
+        return Json::object({{"status", partial ? "Partial" : "Complete"},
+            {"issues_by_reason", issue_counts}, {"issues", first},
+            {"loss_records_by_reason", loss_counts}, {"loss_count", loss_count_},
+            {"collector_diagnostics", collector}});
     }
 
     Json report() {

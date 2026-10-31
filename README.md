@@ -86,7 +86,8 @@ GpuActivity --corr--> ApiCall --corr--> ExtCorr(step_id) --> Step --members--> R
    ids (the plugin omits them from a chunk with a token of unknown step),
    `blame` falls back, for that whole request, to its steps whose host span
    ended inside the gap. Under async scheduling that picks the step after
-   the producing one, and the output does not say the fallback was used.
+   the producing one, so each request row says which rule it used
+   (`producing_steps`) and the output carries a warning.
 3. **Report that step's evidence:**
    - GPU busy time: the union of its linked kernels and copies, measured in
      GPU time;

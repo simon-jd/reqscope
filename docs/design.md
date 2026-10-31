@@ -147,7 +147,8 @@ by time.
    If any chunk of the request's token log lacks `token_steps` (the plugin
    omits them from a chunk with a token of unknown step), fall back to the
    request's steps whose host span ended inside the gap. Under async
-   scheduling that is one step late, and the output does not mark it.
+   scheduling that can be one step late, so the request's row says
+   `producing_steps: host_span_in_gap` and the output carries a warning.
 2. A gap more than 1.5× the request's median gap is slow. Its excess over
    the median is what needs explaining.
 3. For the step that produced the token after the gap, report:
@@ -158,10 +159,14 @@ by time.
    slow gap with no co-scheduled prefill is reported as unexplained.
 5. Rank culprits by the excess they caused across all requests.
 
-`blame` also reports:
-- how many GPU records it linked to steps;
-- how many had no timestamps;
-- what was lost;
+`blame` also reports how far to trust the answer:
+- how many GPU records it linked to steps, and how many had no timestamps;
+- `trace`: Complete or Partial, with the reader's and analyzer's issues by
+  reason (truncated or corrupt frames, sequence gaps, a missing end of
+  session, a `collector-error-PID.txt` left by a failed writer), losses by
+  reason, and the `Diagnostic` records of the collector and plugin;
+- how many requests used the host-span fallback;
+- `warnings`: one sentence for each of the above that limits the answer;
 - the clock bound.
 
 **`analyze` / `explain`** split each request's wall time into

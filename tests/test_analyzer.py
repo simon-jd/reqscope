@@ -145,6 +145,48 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
                 self.assertEqual([s["step_id"] for s in gap["steps"]], [producer])
                 self.assertEqual([x["req_id"] for x in gap["blamed"]], [culprit] if culprit else [])
 
+    def test_blame_says_which_requests_fall_back_to_host_spans(self):
+        steps = [step(1, 10, 40, [member("a")]), step(2, 60, 90, [member("a")]), step(3, 150, 190, [member("a")]),
+                 step(4, 250, 290, [member("a"), member("b", tokens=2048, phase="prefill")]),
+                 step(5, 310, 330, [member("a"), member("b")])]
+        a = dict(request("a", 0, 1000), token_times=[100, 200, 300, 800, 900], token_steps=[1, 2, 3, 4, 5])
+        b = dict(request("b", 200, 1000, prompt_tokens=2048), token_times=[790, 900, 990])
+        report = json.loads(self.cli("blame", write_segment(self.root / "mixed.rqs", [a, b, *steps])).stdout)
+        modes = {row["req_id"]: row["producing_steps"] for row in report["requests"]}
+        self.assertEqual(modes, {"a": "recorded", "b": "host_span_in_gap"})
+        self.assertEqual((report["summary"]["requests_with_recorded_steps"],
+                          report["summary"]["requests_using_host_span_fallback"]), (1, 1))
+        self.assertTrue(any("one step late" in w for w in report["warnings"]), report["warnings"])
+        b["token_steps"] = [4, 5, 5]
+        clean = json.loads(self.cli("blame", write_segment(self.root / "recorded.rqs", [a, b, *steps])).stdout)
+        self.assertEqual(clean["summary"]["requests_using_host_span_fallback"], 0)
+        self.assertEqual((clean["trace"]["status"], clean["warnings"]), ("Complete", []))
+
+    def test_blame_reports_losses_and_collector_diagnostics(self):
+        a = dict(request("a", 0, 1000), token_times=[100, 200, 300], token_steps=[1, 1, 1])
+        rows = [a, step(1, 110, 190, [member("a")]),
+                dict(type="Loss", reason="queue_full", count=5, count_unit="records"),
+                dict(type="Diagnostic", source="clock_probe", reason="cuMemAlloc failed; probe stopped",
+                     stopped=True, error=2, probes=0)]
+        report = json.loads(self.cli("blame", write_segment(self.root / "lossy.rqs", rows)).stdout)
+        trace = report["trace"]
+        self.assertEqual(trace["status"], "Partial")
+        self.assertEqual((trace["loss_records_by_reason"], trace["loss_count"]), ({"queue_full": 1}, 5))
+        self.assertEqual([(d["source"], d["stopped"]) for d in trace["collector_diagnostics"]],
+                         [("clock_probe", True)])
+        self.assertTrue(any(w.startswith("trace is Partial") for w in report["warnings"]), report["warnings"])
+        self.assertTrue(any(w.startswith("clock_probe stopped") for w in report["warnings"]), report["warnings"])
+
+    def test_a_collector_error_file_makes_the_capture_partial(self):
+        capture = self.root / "failed"
+        a = dict(request("a", 0, 1000), token_times=[100, 200, 300], token_steps=[1, 1, 1])
+        write_segment(capture / "segment-1.rqs", [a, step(1, 110, 190, [member("a")])])
+        (capture / "collector-error-7.txt").write_text("segment write failed\n")
+        report = json.loads(self.cli("blame", capture).stdout)
+        self.assertEqual(report["trace"]["status"], "Partial")
+        self.assertEqual(report["trace"]["issues_by_reason"], {"collector_failed": 1})
+        self.assertEqual(report["trace"]["issues"][0]["detail"], "segment write failed")
+
     def test_blame_reassembles_tokens_flushed_in_chunks(self):
         chunk = dict(type="RequestTokens", req_id="a", first=0, token_times=[100, 200], token_steps=[1, 2])
         a = dict(request("a", 0, 1000), token_times=[300, 800, 900], token_steps=[3, 4, 5], token_offset=2)

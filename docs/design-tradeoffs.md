@@ -47,8 +47,8 @@ experiment) rather than guessed. Two joins still use time. Clock probes are
 paired with their copies by time (a copy within 50 ms of the probe's
 bracket, closest pairs first). And when a request's token log has no step
 ids, `blame` falls back to the request's steps whose host span ended inside
-the gap, which is one step late under async scheduling and is not marked in
-its output.
+the gap, which can be one step late under async scheduling; the output says
+which requests used it.
 
 ## One clock, with a measured bound
 

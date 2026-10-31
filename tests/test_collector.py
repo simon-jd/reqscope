@@ -232,6 +232,12 @@ assert lib.reqscope_flush() == 0
         self.assertTrue(any("stopped collecting" in w for w in outcome["warnings"]), outcome["warnings"])
         [error] = list(self.output.glob("collector-error-*.txt"))
         self.assertIn("segment write failed", error.read_text())
+        if BIN.is_file():
+            blame = subprocess.run([str(BIN), "blame", str(self.output)], text=True, capture_output=True, timeout=20)
+            self.assertEqual(blame.returncode, 0, blame.stderr)
+            trace = json.loads(blame.stdout)["trace"]
+            self.assertEqual(trace["status"], "Partial")
+            self.assertIn("collector_failed", trace["issues_by_reason"])
 
 
 WRITER_FAILURE = '''

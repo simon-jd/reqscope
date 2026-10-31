@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <map>
 #include <numeric>
 #include <set>
@@ -141,12 +142,17 @@ Trace read_trace(const std::filesystem::path &path) {
       throw std::runtime_error("REQSCOPE_TRACE_BUDGET_MIB must be 1..65536");
     budget = size_t(mib) * 1024 * 1024;
   }
-  std::vector<std::filesystem::path> files;
+  std::vector<std::filesystem::path> files, collector_errors;
   if (std::filesystem::is_directory(path)) {
     for (auto &e : std::filesystem::directory_iterator(path)) {
-      if (e.is_regular_file() && !e.is_symlink() &&
-          e.path().extension() == ".rqs")
+      if (!e.is_regular_file() || e.is_symlink())
+        continue;
+      if (e.path().extension() == ".rqs")
         files.push_back(e.path());
+      // A collector whose writer failed leaves collector-error-PID.txt.
+      else if (e.path().filename().string().starts_with("collector-error-") &&
+               e.path().extension() == ".txt")
+        collector_errors.push_back(e.path());
     }
   } else if (std::filesystem::is_regular_file(path))
     files.push_back(path);
@@ -173,6 +179,14 @@ Trace read_trace(const std::filesystem::path &path) {
                                           {"offset", offset},
                                           {"producer", producer}}));
   };
+  std::sort(collector_errors.begin(), collector_errors.end());
+  for (const auto &f : collector_errors) {
+    std::string line;
+    std::ifstream in(f);
+    std::getline(in, line);
+    issue("collector_failed", f, 0);
+    t.diagnostics.back()["detail"] = line.substr(0, 512);
+  }
   for (auto &f : files) {
     // One read per segment; frames are sliced from it, not read and
     // allocated one at a time.
