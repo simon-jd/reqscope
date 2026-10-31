@@ -37,9 +37,10 @@ Notes:
 - The CUPTI-off pairs and the open-loop runs used the collector and bench
   scripts of commit 2c85655, with `--gpu-memory-utilization 0.6`; each run
   held the host's GPU lock. All but `interference-s5` (which keeps its
-  original `blame.json`) were scored with the current analyzer. Their host load comes from a
-  `bench/sample_load.py` CSV sampled every 5 s through the session (not
-  committed; `client.json` records load itself from the next commit on).
+  original `blame.json`) were scored with the current analyzer. Their host load comes from a CSV in
+  `bench/sample_load.py`'s format, sampled every 5 s through the session, kept
+  with the raw runs as `results/raw/loadavg-2026-10-31.csv` (`client.json`
+  records load itself in later runs).
   The sampler started after pair 1, whose load (8.8 over 1 minute, 10.4
   over 5) was read with `uptime` during the pair.
 - The plugin-only captures predate the fix that leaves `clock_error_ns`

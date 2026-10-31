@@ -42,10 +42,15 @@ before the application creates a context.
 - A control socket (`/tmp/reqscope-PID.sock`) takes `flush`, `dump` (freeze
   the last N seconds into a new directory) and `status`.
 
-Two modes:
+Three modes:
+- **plugin**: CUPTI is never started; only the vLLM plugin's steps,
+  membership and request lifecycles are recorded, and the header has no GPU
+  clock bound.
 - **light**: one record per CUDA graph launch (graph envelope). Kernels
   launched outside a graph are not recorded one by one.
-- **trace**: one record per kernel, including kernels inside graphs.
+- **trace**: one record per kernel, including kernels inside graphs. Its
+  per-kernel collection changes host timing under load (README, CUPTI-off
+  comparison and open-loop overhead).
 
 Both modes record only the driver and runtime APIs that submit work, move
 data or synchronize, enabled one CUPTI callback ID at a time.
