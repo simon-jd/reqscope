@@ -2,7 +2,7 @@
 
     python bench/score.py interference results/raw/interference
     python bench/score.py overhead results/raw/overhead-{off,light,trace}
-    python bench/score.py openloop results/raw/openloop-*
+    python bench/score.py openloop [--load load.csv] results/raw/openloop-*
 
 interference
     Runs `reqscope blame` on the capture, then checks
@@ -17,7 +17,9 @@ overhead
 openloop
     Per run and rate: throughput, TTFT and TPOT (p50 and p99). Then, per mode
     and rate, the median over rounds with the range (min, max), and the change
-    of each median against mode "off".
+    of each median against mode "off". Each run also gets the host's mean
+    1-minute load average over its load window, from client.json or, for
+    runs that did not record it, from a bench/sample_load.py CSV (--load).
 
 `reqscope` is $REQSCOPE_BIN, else build/reqscope. Reading a large capture
 needs more than the reader's default 2 GiB budget, so the trace budget
@@ -134,15 +136,29 @@ def overhead(runs: list[Path]) -> list[dict]:
 METRICS = ("output_tokens_per_s", "ttft_p50_ms", "ttft_p99_ms", "tpot_p50_ms", "tpot_p99_ms")
 
 
-def openloop(runs: list[Path]) -> dict:
+def load_samples(path: str | None) -> list:
+    if not path:
+        return []
+    return [[int(row[0]), float(row[2]), float(row[3])]
+            for row in (line.split(",") for line in Path(path).read_text().splitlines()) if row[0]]
+
+
+def mean_load(samples: list, begin: int, end: int) -> float | None:
+    window = [s[1] for s in samples if begin <= s[0] <= end]
+    return round(statistics.mean(window), 2) if window else None
+
+
+def openloop(runs: list[Path], load: list) -> dict:
     rows = []
     for run in runs:
         client = json.loads((run / "client.json").read_text())
+        samples = client.get("loadavg") or load
         for block in client["results"]:
             done = [r for r in block["results"] if len(r["chunk_ns"]) >= 2]
             rows.append({"run": run.name, "mode": client["mode"], "round": client["round"], "rate": block["rate"],
                          "sent": len(block["results"]),
-                         **latency(done, (block["ended_ns"] - block["started_ns"]) / 1e9)})
+                         **latency(done, (block["ended_ns"] - block["started_ns"]) / 1e9),
+                         "load1_mean": mean_load(samples, block["started_ns"], block["ended_ns"])})
     groups = defaultdict(list)
     for row in rows:
         groups[(row["rate"], row["mode"])].append(row)
@@ -166,9 +182,13 @@ MODES = ["off", "plugin", "light", "trace"]
 def main() -> None:
     if len(sys.argv) < 3 or sys.argv[1] not in ("interference", "overhead", "openloop"):
         sys.exit(__doc__)
-    runs = [Path(p) for p in sys.argv[2:]]
+    args = sys.argv[2:]
+    load = []
+    if args[:1] == ["--load"]:
+        load, args = load_samples(args[1]), args[2:]
+    runs = [Path(p) for p in args]
     result = {"interference": lambda: interference(runs[0]), "overhead": lambda: overhead(runs),
-              "openloop": lambda: openloop(runs)}[sys.argv[1]]()
+              "openloop": lambda: openloop(runs, load)}[sys.argv[1]]()
     print(json.dumps(result, indent=2))
 
 

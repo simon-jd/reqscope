@@ -46,6 +46,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -224,6 +225,28 @@ async def stream_warmup(port: int) -> None:
 
 
 @contextlib.contextmanager
+def load_samples(samples: list, every: float = 5.0):
+    """Record [monotonic ns, 1-min load, 5-min load] while the block runs.
+
+    The host may be shared, and its load changes host-side timings."""
+    done = threading.Event()
+
+    def sample():
+        while True:
+            load = Path("/proc/loadavg").read_text().split()
+            samples.append([time.monotonic_ns(), float(load[0]), float(load[1])])
+            if done.wait(every):
+                return
+    worker = threading.Thread(target=sample, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        done.set()
+        worker.join()
+
+
+@contextlib.contextmanager
 def gpu_lock(path: Path | None):
     if path is None:
         yield
@@ -274,7 +297,8 @@ def main() -> None:
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
     run = {"interference": interference, "overhead": overhead, "openloop": openloop}[args.experiment]
-    with gpu_lock(args.lock):
+    load: list = []
+    with gpu_lock(args.lock), load_samples(load):
         process = server(args, args.out)
         try:
             wait_ready(process, args.port)
@@ -294,7 +318,7 @@ def main() -> None:
     (args.out / "client.json").write_text(json.dumps({
         "experiment": args.experiment, "mode": args.mode, "seed": args.seed, "round": args.round,
         "model": args.model, "revision": args.revision, "gpu_memory_utilization": args.gpu_memory_utilization,
-        "started_ns": started, "ended_ns": ended, "results": results}))
+        "started_ns": started, "ended_ns": ended, "loadavg": load, "results": results}))
     print(args.out)
 
 
