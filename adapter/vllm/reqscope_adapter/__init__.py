@@ -8,6 +8,12 @@ Two sets of hooks, both in the EngineCore process (uni executor, TP=1):
 * the scheduler's add_request/schedule/update_from_output/_free_request emit
   one Request record per request: arrival, first scheduled, per-token and
   finish times on the same CLOCK_MONOTONIC as the GPU timestamps.
+
+The profiler must never take serving down. If any collector call fails (the
+writer hit a full disk, the collector is shutting down, an NVTX range cannot
+be opened), the plugin closes what it opened, stops collecting for the rest
+of the process, records a Diagnostic if the collector still accepts records,
+and warns. Engine exceptions always propagate unchanged.
 """
 import ctypes
 import functools
@@ -22,6 +28,10 @@ import warnings
 
 SUPPORTED_VERSION = "0.31.0"
 _ids = itertools.count(1)
+
+
+class CollectorUnavailable(RuntimeError):
+    """The collector no longer accepts records: its writer failed or it stopped."""
 
 
 class Collector:
@@ -39,14 +49,25 @@ class Collector:
             raise RuntimeError("reqscope collector initialization failed")
 
     def emit(self, record):
-        return self.lib.reqscope_emit_json(json.dumps(record, separators=(",", ":")).encode())
+        # -1 (malformed/oversize) and -2 (queue full) are counted as Loss
+        # records by the collector itself; -3 means it accepts nothing more.
+        result = self.lib.reqscope_emit_json(json.dumps(record, separators=(",", ":")).encode())
+        if result == -3:
+            raise CollectorUnavailable("reqscope collector is not accepting records")
+        return result
 
     def push(self, step_id):
-        if self.lib.reqscope_push_step(step_id):
+        result = self.lib.reqscope_push_step(step_id)
+        if result == -3:
+            raise CollectorUnavailable("reqscope collector is not accepting records")
+        if result:
             raise RuntimeError("reqscope external correlation push failed")
 
     def pop(self):
-        if self.lib.reqscope_pop_step():
+        result = self.lib.reqscope_pop_step()
+        if result == -3:
+            raise CollectorUnavailable("reqscope collector is not accepting records")
+        if result:
             raise RuntimeError("reqscope external correlation pop failed")
 
     def range_push(self, record, phase):
@@ -60,6 +81,32 @@ class Collector:
         if os.environ.get("REQSCOPE_NVTX") == "1":
             import nvtx
             nvtx.pop_range(domain="reqscope")
+
+
+def collecting(collector):
+    return not getattr(collector, "reqscope_stopped", False)
+
+
+def stop_collecting(collector, action, error):
+    """Stop all collection after a collector failure; serving continues."""
+    if not collecting(collector):
+        return
+    collector.reqscope_stopped = True
+    reason = f"{action} failed ({error}); reqscope stopped collecting and the engine keeps serving"
+    warnings.warn(f"reqscope: {reason}", RuntimeWarning, stacklevel=2)
+    try:
+        collector.emit({"type": "Diagnostic", "source": "vllm_plugin", "reason": reason, "stopped": True})
+    except Exception:
+        pass   # the collector is gone; the warning and its own error file remain
+
+
+def emit_or_stop(collector, record, action):
+    if not collecting(collector):
+        return
+    try:
+        collector.emit(record)
+    except Exception as error:
+        stop_collecting(collector, action, error)
 
 
 def _members(output):
@@ -96,41 +143,51 @@ def install(runner_class, collector, version=SUPPORTED_VERSION):
         state["t_end"] = time.monotonic_ns()
         if partial:
             state["status"] = "Partial"
-            collector.emit({"type": "Loss", "reason": "adapter_incomplete_step", "count": 1,
-                            "time_range": [state["t_begin"], state["t_end"]]})
-        collector.emit(state)
+            emit_or_stop(collector, {"type": "Loss", "reason": "adapter_incomplete_step", "count": 1,
+                                     "time_range": [state["t_begin"], state["t_end"]]}, "recording a step")
+        emit_or_stop(collector, state, "recording a step")
 
     def cleanup(runner, failed, complete):
+        """Close the step's NVTX range and correlation. Never raises."""
+        problem = None
         try:
-            try:
-                if getattr(runner, "_reqscope_nvtx_open", False):
-                    runner._reqscope_nvtx_open = False
-                    collector.range_pop()
-            finally:
-                collector.pop()
-        except Exception as exc:
-            if not failed:
-                finish(runner, partial=True)
-                raise
-            warnings.warn(f"reqscope cleanup failed while engine raised: {exc}", RuntimeWarning)
-        finally:
-            if complete:
-                try:
-                    finish(runner, partial=failed)
-                except Exception:
-                    if not failed:
-                        raise
+            if getattr(runner, "_reqscope_nvtx_open", False):
+                runner._reqscope_nvtx_open = False
+                collector.range_pop()
+        except Exception as error:
+            problem = ("closing the step's NVTX range", error)
+        try:
+            collector.pop()
+        except Exception as error:
+            problem = problem or ("popping the step's external correlation", error)
+        if complete or problem:
+            finish(runner, partial=failed or problem is not None)
+        if problem:
+            stop_collecting(collector, *problem)
 
     def push(runner, record, phase):
-        collector.push(record["step_id"])
+        """Open the step's correlation and NVTX range; False if collection stopped."""
+        try:
+            collector.push(record["step_id"])
+        except Exception as error:
+            runner._reqscope_pending = None
+            stop_collecting(collector, "pushing the step's external correlation", error)
+            return False
         try:
             if hasattr(collector, "range_push"):
                 collector.range_push(record, phase)
                 runner._reqscope_nvtx_open = True
-        except BaseException:
-            collector.pop()
+        except BaseException as error:
+            try:
+                collector.pop()
+            except Exception:
+                pass
             finish(runner, partial=True)
-            raise
+            if not isinstance(error, Exception):
+                raise
+            stop_collecting(collector, "opening the step's NVTX range", error)
+            return False
+        return True
 
     def validate_configuration(runner):
         if getattr(runner, "_reqscope_config_checked", False):
@@ -143,21 +200,24 @@ def install(runner_class, collector, version=SUPPORTED_VERSION):
             executor = getattr(parallel, "distributed_executor_backend", None)
             if executor != "uni":
                 raise RuntimeError(f"reqscope requires uni executor, found {executor}")
-            collector.emit({"type": "AdapterConfig", "vllm_version": version,
-                            "runner": "V2 GPUModelRunner", "executor": executor,
-                            "async_scheduling": bool(config.scheduler_config.async_scheduling),
-                            "cudagraph_mode": str(config.compilation_config.cudagraph_mode),
-                            "tensor_parallel_size": 1, "pipeline_parallel_size": 1})
+            emit_or_stop(collector, {"type": "AdapterConfig", "vllm_version": version,
+                                     "runner": "V2 GPUModelRunner", "executor": executor,
+                                     "async_scheduling": bool(config.scheduler_config.async_scheduling),
+                                     "cudagraph_mode": str(config.compilation_config.cudagraph_mode),
+                                     "tensor_parallel_size": 1, "pipeline_parallel_size": 1},
+                         "recording the adapter configuration")
         runner._reqscope_config_checked = True
 
     @functools.wraps(execute)
     def execute_wrapped(self, *args, **kwargs):
         bound = signature.bind(self, *args, **kwargs)
         bound.apply_defaults()
-        if bound.arguments["dummy_run"]:
+        if bound.arguments["dummy_run"] or not collecting(collector):
             return execute(self, *args, **kwargs)
         validate_configuration(self)
         finish(self, partial=True)
+        if not collecting(collector):
+            return execute(self, *args, **kwargs)
         output = bound.arguments["scheduler_output"]
         step_id = next(_ids)
         # The scheduler hands this same object to update_from_output, so the
@@ -171,10 +231,10 @@ def install(runner_class, collector, version=SUPPORTED_VERSION):
                   "preempted": sorted(getattr(output, "preempted_req_ids", None) or []),
                   "finished": sorted(getattr(output, "finished_req_ids", None) or [])}
         self._reqscope_pending = record
-        push(self, record, "execute_model")
+        opened = push(self, record, "execute_model")
         failed = False
         try:
-            if os.environ.get("REQSCOPE_TEST_SYNCHRONIZE") == "1":
+            if opened and os.environ.get("REQSCOPE_TEST_SYNCHRONIZE") == "1":
                 import torch
                 torch.cuda.synchronize()
             result = execute(self, *args, **kwargs)
@@ -182,17 +242,18 @@ def install(runner_class, collector, version=SUPPORTED_VERSION):
             failed = True
             raise
         finally:
-            cleanup(self, failed, failed)
-        if result is not None or not output.num_scheduled_tokens:
+            if opened:
+                cleanup(self, failed, failed)
+        if opened and (result is not None or not output.num_scheduled_tokens):
             finish(self)
         return result
 
     @functools.wraps(sample)
     def sample_wrapped(self, *args, **kwargs):
         pending = getattr(self, "_reqscope_pending", None)
-        if pending is None:
+        if pending is None or not collecting(collector):
             return sample(self, *args, **kwargs)
-        push(self, pending, "sample_tokens")
+        opened = push(self, pending, "sample_tokens")
         failed = False
         try:
             return sample(self, *args, **kwargs)
@@ -200,7 +261,8 @@ def install(runner_class, collector, version=SUPPORTED_VERSION):
             failed = True
             raise
         finally:
-            cleanup(self, failed, True)
+            if opened:
+                cleanup(self, failed, True)
 
     runner_class.execute_model = execute_wrapped
     runner_class.sample_tokens = sample_wrapped
@@ -236,6 +298,9 @@ def install_lifecycle(scheduler_class, collector):
 
     @functools.wraps(add_request)
     def add_request_wrapped(self, request):
+        if not collecting(collector):
+            live.clear()
+            return add_request(self, request)
         live[request.request_id] = {"start": time.monotonic_ns(), "prompt_tokens": request.num_prompt_tokens,
                                     "queued_until": None, "token_times": [], "token_steps": [], "flushed": 0}
         return add_request(self, request)
@@ -255,12 +320,14 @@ def install_lifecycle(scheduler_class, collector):
                   "token_times": state["token_times"]}
         if None not in state["token_steps"]:
             record["token_steps"] = state["token_steps"]
-        collector.emit(record)
+        emit_or_stop(collector, record, "recording request tokens")
         state["flushed"] += len(state["token_times"])
         state["token_times"], state["token_steps"] = [], []
 
     @functools.wraps(update)
     def update_wrapped(self, scheduler_output, model_runner_output):
+        if not collecting(collector):
+            return update(self, scheduler_output, model_runner_output)
         now = time.monotonic_ns()
         sampled = getattr(model_runner_output, "sampled_token_ids", None) or []
         step_id = getattr(scheduler_output, "_reqscope_step_id", None)
@@ -276,7 +343,7 @@ def install_lifecycle(scheduler_class, collector):
     @functools.wraps(free)
     def free_wrapped(self, request, *args, **kwargs):
         state = live.pop(request.request_id, None)
-        if state is not None:
+        if state is not None and collecting(collector):
             record = {"type": "Request", "req_id": request.request_id, "start": state["start"],
                       "end": time.monotonic_ns(), "prompt_tokens": state["prompt_tokens"],
                       "token_times": state["token_times"], "token_offset": state["flushed"],
@@ -285,7 +352,7 @@ def install_lifecycle(scheduler_class, collector):
                 record["token_steps"] = state["token_steps"]
             if state["queued_until"] is not None:
                 record["queued_until"] = state["queued_until"]
-            collector.emit(record)
+            emit_or_stop(collector, record, "recording a request")
         return free(self, request, *args, **kwargs)
 
     scheduler_class.add_request = add_request_wrapped

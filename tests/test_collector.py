@@ -219,5 +219,53 @@ assert lib.reqscope_flush() == 0
         self.assertEqual(manifest["session_state"], "Snapshot")
 
 
+    def test_writer_failure_stops_the_plugin_without_raising_into_the_engine(self):
+        # A file-size limit makes the writer's first drain fail with EFBIG, the
+        # way a full disk fails a write.
+        result = subprocess.run([sys.executable, "-c", WRITER_FAILURE], env={**self.env, "ROOT": str(ROOT)},
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outcome = json.loads(result.stdout)
+        self.assertTrue(outcome["stopped"], outcome)
+        self.assertEqual(outcome["results"], ["served"])               # every step was served
+        self.assertGreaterEqual(outcome["steps_after_stop"], 3)
+        self.assertTrue(any("stopped collecting" in w for w in outcome["warnings"]), outcome["warnings"])
+        [error] = list(self.output.glob("collector-error-*.txt"))
+        self.assertIn("segment write failed", error.read_text())
+
+
+WRITER_FAILURE = '''
+import importlib.util, json, os, resource, signal, time, warnings
+from types import SimpleNamespace
+signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+resource.setrlimit(resource.RLIMIT_FSIZE, (8192, 8192))
+spec = importlib.util.spec_from_file_location(
+    "adapter", os.path.join(os.environ["ROOT"], "adapter/vllm/reqscope_adapter/__init__.py"))
+adapter = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(adapter)
+class Runner:
+    def execute_model(self, scheduler_output, intermediate_tensors=None, dummy_run=False):
+        return "served"
+    def sample_tokens(self, grammar=None):
+        return "tokens"
+collector = adapter.Collector()
+adapter.install(Runner, collector)
+runner = Runner()
+step = SimpleNamespace(num_scheduled_tokens={f"request-{i}": 1 for i in range(64)},
+                       scheduled_new_reqs=[], preempted_req_ids=set(), finished_req_ids=set())
+results, after = set(), 0
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and after < 3:
+        results.add(runner.execute_model(step))
+        if not adapter.collecting(collector):
+            after += 1
+        time.sleep(0.01)
+print(json.dumps({"stopped": not adapter.collecting(collector), "results": sorted(results),
+                  "steps_after_stop": after, "warnings": [str(w.message) for w in caught]}))
+'''
+
+
 if __name__ == "__main__":
     unittest.main()

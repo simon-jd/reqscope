@@ -19,9 +19,13 @@ class FakeCollector:
         self.stack = []
         self.records = []
         self.fail_pop = False
+        self.fail_push = False
+        self.fail_emit = False
 
     def push(self, identity):
         self.events.append(("push", identity))
+        if self.fail_push:
+            raise ADAPTER.CollectorUnavailable("writer failed")
         self.stack.append(identity)
 
     def pop(self):
@@ -30,6 +34,9 @@ class FakeCollector:
             raise RuntimeError("collector pop failed")
 
     def emit(self, record):
+        self.events.append(("emit", record["type"]))
+        if self.fail_emit:
+            raise ADAPTER.CollectorUnavailable("writer failed")
         self.records.append(dict(record))
         return 0
 
@@ -83,7 +90,8 @@ class AdapterContractTests(unittest.TestCase):
         self.assertEqual(row["preempted"], ["paused"])
         self.assertEqual(row["finished"], ["done"])
         self.assertLessEqual(row["t_begin"], row["t_end"])
-        self.assertEqual(self.collector.events, [("push", row["step_id"]), ("pop", row["step_id"])] * 2)
+        self.assertEqual(self.collector.events,
+                         [("push", row["step_id"]), ("pop", row["step_id"])] * 2 + [("emit", "Step")])
         self.assertEqual(self.collector.stack, [])
         self.assertEqual(self.runner.execute_calls, [(scheduled, "intermediate", False)])
         self.assertEqual(scheduled._reqscope_step_id, row["step_id"])   # read by the lifecycle hook
@@ -191,7 +199,7 @@ class AdapterContractTests(unittest.TestCase):
         self.assertTrue(configs[0]["async_scheduling"])
         self.assertEqual(configs[0]["cudagraph_mode"], "FULL_AND_PIECEWISE")
 
-    def test_nvtx_push_failure_balances_external_correlation(self):
+    def test_nvtx_push_failure_balances_correlation_and_keeps_serving(self):
         class RangeCollector(FakeCollector):
             def range_push(self, record, phase):
                 raise ValueError("NVTX unavailable")
@@ -201,12 +209,14 @@ class AdapterContractTests(unittest.TestCase):
         fresh = runner_class()
         ADAPTER.install(fresh, collector)
         runner = fresh()
-        with self.assertRaisesRegex(ValueError, "NVTX unavailable"):
-            runner.execute_model(output())
+        runner.result = "served"
+        with self.assertWarns(RuntimeWarning):
+            self.assertEqual(runner.execute_model(output()), "served")
         self.assertEqual(collector.stack, [])
-        self.assertEqual(runner.execute_calls, [])
-        self.assertEqual([r["type"] for r in collector.records], ["Loss", "Step"])
-        self.assertEqual(collector.records[-1]["status"], "Partial")
+        self.assertEqual(len(runner.execute_calls), 1)
+        self.assertEqual([r["type"] for r in collector.records], ["Loss", "Step", "Diagnostic"])
+        self.assertEqual(collector.records[1]["status"], "Partial")
+        self.assertIn("NVTX", collector.records[-1]["reason"])
 
     def test_nvtx_pop_failure_preserves_engine_exception_and_pops_correlation(self):
         class RangeCollector(FakeCollector):
@@ -223,11 +233,62 @@ class AdapterContractTests(unittest.TestCase):
                 runner.execute_model(output())
         self.assertIs(captured.exception, original)
         self.assertEqual(collector.stack, [])
-        self.assertEqual(collector.records[-1]["status"], "Partial")
+        [step] = [r for r in collector.records if r["type"] == "Step"]
+        self.assertEqual(step["status"], "Partial")
 
+    def assert_stopped_and_serving(self, runner):
+        """Once collection stopped, steps run with no collector calls at all."""
+        self.assertTrue(self.collector.reqscope_stopped)
+        before = len(self.collector.events)
+        runner.result = None
+        self.assertIsNone(runner.execute_model(output()))
+        self.assertEqual(runner.sample_tokens(), "tokens")
+        runner.result = "again"
+        self.assertEqual(runner.execute_model(output()), "again")
+        self.assertEqual(self.collector.events[before:], [])
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_writer_failure_on_push_keeps_serving_and_stops_collecting(self):
+        self.collector.fail_push = True
+        self.runner.result = "served"
+        with self.assertWarnsRegex(RuntimeWarning, "stopped collecting"):
+            self.assertEqual(self.runner.execute_model(output()), "served")
+        self.assertEqual(len(self.runner.execute_calls), 1)
+        [diagnostic] = self.collector.records
+        self.assertEqual((diagnostic["type"], diagnostic["source"], diagnostic["stopped"]),
+                         ("Diagnostic", "vllm_plugin", True))
+        self.assert_stopped_and_serving(self.runner)
+
+    def test_writer_failure_on_emit_keeps_serving_and_stops_collecting(self):
+        self.runner.execute_model(output())
+        self.collector.fail_emit = True
+        with self.assertWarns(RuntimeWarning):
+            self.assertEqual(self.runner.sample_tokens(), "tokens")
+        self.assertEqual(self.collector.stack, [])
+        self.assertEqual(self.collector.records, [])
+        self.assert_stopped_and_serving(self.runner)
+
+    def test_pop_failure_without_engine_error_does_not_raise(self):
+        self.collector.fail_pop = True
+        self.runner.result = "served"
+        with self.assertWarns(RuntimeWarning):
+            self.assertEqual(self.runner.execute_model(output()), "served")
+        self.assertEqual([r["type"] for r in self.collector.records], ["Loss", "Step", "Diagnostic"])
+        self.assert_stopped_and_serving(self.runner)
+
+    def test_collector_that_cannot_start_does_not_stop_the_engine(self):
+        class Broken:
+            def emit(self, record): raise RuntimeError("reqscope collector initialization failed")
+            def push(self, step_id): raise RuntimeError("reqscope collector initialization failed")
+            def pop(self): raise AssertionError("never pushed")
+        fresh = runner_class()
+        ADAPTER.install(fresh, Broken())
+        runner = fresh()
+        runner.vllm_config = self.config()
+        runner.result = "served"
+        with self.assertWarns(RuntimeWarning):
+            self.assertEqual(runner.execute_model(output()), "served")
+        self.assertEqual(runner.execute_model(output()), "served")
+        self.assertEqual(len(runner.execute_calls), 2)
 
 
 class LifecycleTests(unittest.TestCase):
@@ -302,6 +363,28 @@ class LifecycleTests(unittest.TestCase):
         times = [t for c in chunks for t in c["token_times"]] + final["token_times"]
         self.assertEqual(times, sorted(times))
 
+    def test_emit_failure_in_the_scheduler_stops_lifecycle_records_without_raising(self):
+        class Scheduler:
+            def add_request(self, request): pass
+            def schedule(self): return SimpleNamespace(num_scheduled_tokens={"r1": 1})
+            def update_from_output(self, scheduler_output, model_runner_output): return "updated"
+            def _free_request(self, request): return "freed"
+        collector = FakeCollector()
+        ADAPTER.install_lifecycle(Scheduler, collector)
+        scheduler = Scheduler()
+        request = SimpleNamespace(request_id="r1", num_prompt_tokens=1, status=SimpleNamespace(name="FINISHED"))
+        scheduler.add_request(request)
+        sampled = SimpleNamespace(req_id_to_index={"r1": 0}, sampled_token_ids=[[7]])
+        self.assertEqual(scheduler.update_from_output(scheduler.schedule(), sampled), "updated")
+        collector.fail_emit = True
+        with self.assertWarns(RuntimeWarning):
+            self.assertEqual(scheduler._free_request(request), "freed")
+        before = len(collector.events)
+        scheduler.add_request(request)
+        self.assertEqual(scheduler.update_from_output(scheduler.schedule(), sampled), "updated")
+        self.assertEqual(scheduler._free_request(request), "freed")
+        self.assertEqual(collector.events[before:], [])
+
     def test_tokens_name_the_step_that_produced_them(self):
         class Scheduler:
             def add_request(self, request): pass
@@ -321,3 +404,7 @@ class LifecycleTests(unittest.TestCase):
         scheduler._free_request(request)
         [record] = [r for r in collector.records if r["type"] == "Request"]
         self.assertEqual(record["token_steps"], [11, 12])
+
+
+if __name__ == "__main__":
+    unittest.main()

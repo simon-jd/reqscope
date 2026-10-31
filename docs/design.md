@@ -82,6 +82,13 @@ The hooks need two details to be right:
   step k+1 is already launched when step k's tokens are processed, so a
   timestamp cannot tell which step produced a token.
 
+**Failure.** The profiler must not take serving down. If a collector call
+fails (the writer hit a full disk, the collector is stopping, an NVTX range
+cannot be opened), the plugin closes what it opened, stops collecting for
+the rest of the process, records a `Diagnostic` if the collector still
+accepts records, and warns; the engine step runs normally. A failed writer
+also leaves `collector-error-PID.txt` in the output directory.
+
 **Shutdown.** vLLM's shutdown SIGKILLs EngineCore almost immediately. A
 capture is only complete if someone sends the collector `flush` first.
 `bench/interference.py` does that for every collector in the server's
