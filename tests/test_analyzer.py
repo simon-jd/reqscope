@@ -48,7 +48,7 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
                 self.assertNotIn("injected", wait["classification"])
                 self.assertIn("unresolved", wait["scope"])
 
-    def probe_trace(self, name, probes):
+    def probe_trace(self, name, probes, extra=()):
         """One request, one step with one kernel; ClockProbe brackets around probe copies."""
         rows = [request("x", 0, 1000), step(1, 100, 400, [member("x")]), *launch(5, 1, 110), gpu(5, 150, 350)]
         for i, (t0, t1, copy) in enumerate(probes, 1):
@@ -56,7 +56,22 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
             if copy:
                 rows.append(dict(type="GpuActivity", corr=900 + i, kind="memcpy", ctx=9, stream=99,
                                  start=copy[0], end=copy[1], graph_id=0, graph_node_id=0, bytes=4))
+        rows.extend(extra)
         return write_segment(self.root / name, rows, omit_clock_error=True)
+
+    def test_a_stopped_clock_probe_leaves_the_bound_unknown(self):
+        stop = dict(type="Diagnostic", source="clock_probe", reason="cuStreamSynchronize failed; probe stopped",
+                    stopped=True, error=700, probes=2)
+        report = self.analyze(self.probe_trace("stopped.rqs", [(10, 30, (15, 25)), (600, 640, (610, 620))], [stop]))
+        clock = report["clocks"][0]
+        self.assertIsNone(clock["clock_error_ns"])                    # the bound covers only part of the run
+        self.assertEqual(clock["probe"]["paired"], 2)
+        self.assertIn("cuStreamSynchronize", clock["probe"]["stopped"])
+        waiting = dict(stop, reason="no active primary context after 20 intervals", stopped=False)
+        report = self.analyze(self.probe_trace("waited.rqs", [(10, 30, (15, 25))], [waiting]))
+        self.assertEqual(report["clocks"][0]["clock_error_ns"], 20)   # a wait that ended is not a stop
+        never = self.analyze(self.probe_trace("never.rqs", [], [dict(stop, probes=0)]))
+        self.assertEqual(never["clocks"][0]["probe"], {"probes": 0, "stopped": stop["reason"]})
 
     def test_clock_probes_bound_the_session_and_unlock_gpu_attribution(self):
         report = self.analyze(self.probe_trace("probes.rqs", [(10, 30, (15, 25)), (600, 640, (610, 620))]))

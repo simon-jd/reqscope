@@ -661,13 +661,19 @@ private:
     // callback), so the copy's reported [start, end] must lie in [t0, t1]: the
     // bracket width bounds the CPU/GPU alignment error at that moment, and a
     // reported time outside the bracket adds its distance. The session bound is
-    // the worst probe. A header-supplied bound takes precedence.
+    // the worst probe. A header-supplied bound takes precedence. A probe that
+    // stopped (its Diagnostic says "stopped") covered only part of the
+    // session, so its producer's bound stays unknown.
     void derive_probe_bounds() {
         std::map<std::tuple<std::string, Time, Time>, std::vector<const Record*>> copies;
         std::map<std::string, std::vector<const Record*>> probes;
         std::map<std::string, Time> last_gpu_end;
+        std::map<std::string, std::string> stopped;
         for (const auto& record : records_) {
             if (record.ambiguous) continue;
+            if (record.type == "Diagnostic" && str(*record.data, "source") == "clock_probe" &&
+                flag(*record.data, "stopped") && !stopped.contains(record.producer))
+                stopped[record.producer] = str(*record.data, "reason");
             if (record.type == "ClockProbe") probes[record.producer].push_back(&record);
             else if (record.type == "GpuActivity" && record.timed) {
                 last_gpu_end[record.producer] = std::max(last_gpu_end[record.producer], record.span.end);
@@ -721,10 +727,15 @@ private:
                 {"max_violation_ns", violation},
                 {"bracket_width_p50_ns", widths.empty() ? Json() : Json(widths[widths.size() / 2])},
                 {"bracket_width_max_ns", widths.empty() ? Json() : Json(widths.back())}});
+            const auto halt = stopped.find(producer);
+            if (halt != stopped.end()) stats["stopped"] = halt->second;
             probe_stats_[producer] = stats;
             auto& error = clock_errors_[producer];
-            if (!error && !widths.empty() && !unpaired) error = bound;
+            if (!error && !widths.empty() && !unpaired && halt == stopped.end()) error = bound;
         }
+        for (const auto& [producer, reason] : stopped)
+            if (!probes.contains(producer))
+                probe_stats_[producer] = Json::object({{"probes", Time{0}}, {"stopped", reason}});
     }
 
     const std::vector<Interval>& gpu_busy(const std::string& producer) const {

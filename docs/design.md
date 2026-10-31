@@ -109,7 +109,9 @@ pairs each `ClockProbe` record with that copy by time: a copy on the same
 context and stream that lies at most 50 ms outside the bracket, matching
 the closest pairs first so that a probe never takes its neighbour's copy.
 It then takes the widest bracket plus any violation as the session's bound.
-If any probe is unpaired, the bound stays unknown. A probe that completed
+If any probe is unpaired, or the probe stopped (its setup or a copy failed,
+which it reports in a `Diagnostic` with `stopped: true`), the bound stays
+unknown. A probe that completed
 after the last GPU record CUPTI delivered is counted as pending rather than
 unpaired, since its copy may still have been in a CUPTI buffer. The probe
 copies are excluded from application GPU time.
