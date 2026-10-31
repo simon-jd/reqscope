@@ -14,6 +14,7 @@ here are derived from them.
 | `../docs/slow-steps.svg` | `interference-s5` | `bench/plot_steps.py`, from `interference-blame.json` and `interference-steps.json` |
 | `environment.json` | the host | `bench/environment.py`: Python, vLLM, torch, CUDA toolkit, CUPTI, driver, GPU, kernel, CPU |
 | `ablation.json` | `interference-s5`, then `ablation-trace` and `ablation-plugin` (pair 1) and `ablation-trace-2` and `ablation-plugin-2` (pair 2) | `bench/compare_runs.py --load`, after `bench/score.py interference` on each |
+| `openloop.json` | `openloop-{off,plugin,light,trace}-r1` to `-r5` | `bench/score.py openloop --load` |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
 
 Notes:
@@ -33,7 +34,7 @@ Notes:
   policy (`all-driver-runtime` for s1 to s3, the submission/copy/sync
   whitelist for s4), and s1's segments are 1 MiB where the later runs'
   reach 16 MiB. Their scores are not committed.
-- The CUPTI-off pairs used the collector and bench
+- The CUPTI-off pairs and the open-loop runs used the collector and bench
   scripts of commit 2c85655, with `--gpu-memory-utilization 0.6`; each run
   held the host's GPU lock. All but `interference-s5` (which keeps its
   original `blame.json`) were scored with the current analyzer. Their host load comes from a

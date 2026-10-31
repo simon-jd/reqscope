@@ -92,18 +92,21 @@ the medians below, are in [results/ablation.json](results/ablation.json).
   The extra ones are decode steps with ordinary GPU time and longer gaps:
   host-side delay. Pair 2 ran on a quiet host (load 1.7–1.9), so other
   jobs do not explain the difference; tracing does, by an amount that
-  varies between runs (the headline trace run had 30). The longer host
-  span of the blamed steps in pair 1 (17.7 ms against 5.7 ms) did not
+  varies between runs (the headline trace run had 30). The open-loop
+  overhead below shows the same cost as inter-token latency. The longer
+  host span of the blamed steps in pair 1 (17.7 ms against 5.7 ms) did not
   reproduce on the quiet host (9.4 against 8.4 ms), so it more likely came
   from the load of other jobs.
 
 What each mode is for:
 - **plugin only:** always-on attribution of interference between requests.
-  The same culprits, but a host stall and GPU work look alike.
-- **light:** adds GPU time per CUDA graph launch (graph envelopes), which
-  this experiment did not validate.
+  No measurable cost, the same culprits, but a host stall and GPU work look
+  alike.
+- **light:** also within 1% on TPOT; adds GPU time per CUDA graph launch
+  (graph envelopes), which this experiment did not validate.
 - **trace:** per-kernel GPU time that separates GPU-bound from host-bound
-  slow steps. Use it for short captures: it adds slow steps of its own.
+  slow steps. Use it for short captures at moderate load: it adds slow
+  steps of its own, and at high load it slows the server down.
 
 ## Getting the measurement right
 
@@ -162,26 +165,60 @@ reqscope export-perfetto RUN            # timeline for ui.perfetto.dev
 
 ## Overhead
 
-Measured with `bench/interference.py overhead`: 32 closed-loop clients send
-512-token prompts and take 128 output tokens each, for 60 s on the same
-engine. Values are medians of three alternating rounds. "Trace written" is
-from the first round's captures: the bytes the collector wrote during the
-60 s load window ([results/captures.json](results/captures.json)).
+**Open loop.** `bench/interference.py openloop`: Poisson arrivals of
+512-token prompts with 128 output tokens at 8, 16 and 24 requests/s, 40 s
+per rate on one server, against a closed-loop capacity of about 33
+requests/s. Five rounds with the mode order rotated each round; each cell
+is the median over rounds with the range. The host's load average during
+the runs was 1.1–4.7 (per run in [results/openloop.json](results/openloop.json)).
 
-| Collector | Output tokens/s | TPOT p50 | Trace written |
-|---|---|---|---|
-| none | 4,267 (4,254 – 4,274) | 6.69 ms | |
-| light: graph envelopes + submission APIs | 4,226 (−1.0%) | 6.80 ms (+1.6%) | 6 MB/s |
-| trace: every kernel + submission APIs | 4,078 (−4.4%) | 7.10 ms (+6.1%) | 35 MB/s |
+| Rate | Collector | TTFT p50, ms | TTFT p99, ms | TPOT p50, ms | TPOT p99, ms | Output tokens/s | TPOT p50 / p99 vs none |
+|---|---|---|---|---|---|---|---|
+| 8/s | none | 23.3 (22.9–23.4) | 37.5 (37.2–41.2) | 5.12 (5.11–5.13) | 5.45 (5.44–5.60) | 967 (967–968) |  |
+| 8/s | plugin only | 23.1 (22.8–23.3) | 37.0 (36.2–39.3) | 5.11 (5.11–5.12) | 5.44 (5.41–5.46) | 968 (968–968) | -0.2% / -0.2% |
+| 8/s | light | 22.7 (22.6–22.8) | 37.6 (35.4–38.5) | 5.13 (5.12–5.13) | 5.46 (5.44–5.47) | 968 (967–968) | +0.2% / +0.2% |
+| 8/s | trace | 22.9 (22.4–23.3) | 38.2 (37.3–38.5) | 5.21 (5.19–5.22) | 5.62 (5.53–5.70) | 967 (967–967) | +1.8% / +3.1% |
+| 16/s | none | 23.8 (23.6–24.1) | 44.4 (41.2–50.5) | 5.29 (5.28–5.29) | 6.09 (6.06–6.10) | 1,918 (1,918–1,919) |  |
+| 16/s | plugin only | 23.8 (23.4–23.9) | 44.0 (43.4–45.8) | 5.29 (5.27–5.29) | 6.10 (6.08–6.15) | 1,918 (1,918–1,919) | +0.0% / +0.2% |
+| 16/s | light | 23.5 (23.4–23.6) | 43.5 (40.2–44.5) | 5.30 (5.29–5.30) | 6.13 (6.11–6.14) | 1,919 (1,918–1,919) | +0.2% / +0.7% |
+| 16/s | trace | 26.4 (26.3–27.1) | 47.1 (45.6–50.4) | 6.25 (6.18–6.35) | 7.76 (7.69–10.3) | 1,911 (1,910–1,912) | +18.1% / +27.4% |
+| 24/s | none | 26.4 (26.2–27.1) | 130 (126–134) | 6.19 (6.18–6.19) | 7.32 (7.29–7.33) | 3,155 (3,154–3,155) |  |
+| 24/s | plugin only | 26.2 (25.2–26.3) | 128 (125–137) | 6.18 (6.17–6.19) | 7.34 (7.31–7.36) | 3,155 (3,155–3,155) | -0.2% / +0.3% |
+| 24/s | light | 25.9 (25.8–26.2) | 135 (133–152) | 6.22 (6.21–6.23) | 7.36 (7.34–7.41) | 3,155 (3,155–3,155) | +0.5% / +0.5% |
+| 24/s | trace | 314 (275–417) | 2,049 (1,814–2,574) | 9.87 (9.75–9.87) | 11.1 (10.5–12.1) | 3,003 (2,977–3,028) | +59.5% / +51.0% |
 
-- **Light mode** is cheap enough to leave on. It records each CUDA graph
-  launch, but kernels launched outside a graph are not timed one by one.
+- **Plugin only and light** are within 1% of no collector on TPOT at every
+  rate. Their TTFT medians are within 3%, except light's p99 at 24/s (+4%,
+  with overlapping ranges).
+- **Trace** costs 2–3% at 8 requests/s and 18% (TPOT p50) to 27% (p99) at
+  16. At 24 the engine no longer keeps up: throughput falls 4.8%, requests
+  queue, and median TTFT rises from 26 to 314 ms.
+
+**Closed loop.** `bench/interference.py overhead`: 32 closed-loop clients
+send 512-token prompts and take 128 output tokens each, for 60 s on the
+same engine. Medians of three alternating rounds ([results/overhead.json](results/overhead.json)).
+"Trace written" is from the first round's captures: the bytes the
+collector wrote during the 60 s load window ([results/captures.json](results/captures.json)).
+
+| Collector | Output tokens/s | TTFT p50 | TTFT p99 | TPOT p50 | TPOT p99 | Trace written |
+|---|---|---|---|---|---|---|
+| none | 4,267 (4,254 – 4,274) | 108 ms | 233 ms | 6.69 ms | 7.39 ms | |
+| light: graph envelopes + submission APIs | 4,226 (−1.0%) | 99 ms | 222 ms | 6.80 ms (+1.6%) | 7.43 ms (+0.5%) | 6 MB/s |
+| trace: every kernel + submission APIs | 4,078 (−4.4%) | 99 ms | 201 ms | 7.10 ms (+6.1%) | 8.01 ms (+8.4%) | 35 MB/s |
+
+In closed loop, median TTFT is lower with a collector on (108 to 99 ms),
+probably because with a fixed number of clients a slower engine also
+receives new prompts at a lower rate. Closed-loop TTFT therefore does not
+measure the collector's cost; the open-loop numbers above do.
+
+- **Light mode** records each CUDA graph launch, but kernels launched
+  outside a graph are not timed one by one.
 - **Trace mode** gives per-kernel GPU time, which `blame` needs for step
   busy time. About half its cost appears to be CUPTI collecting a
   timestamp for every kernel: an earlier run with the 4-buffer pool, when
   many kernels went untimed, measured trace mode at 2.3%, but that run's
   data is not in `results/`.
-- Both modes keep a bounded ring on disk, and `reqscope dump --pid` freezes
+- All modes keep a bounded ring on disk, and `reqscope dump --pid` freezes
   the last N seconds.
 
 ## Analysis speed
@@ -228,6 +265,18 @@ python bench/interference.py interference --mode trace --out results/raw/interfe
 python bench/score.py interference results/raw/interference
 python bench/score_steps.py results/raw/interference
 
+# The same workload with CUPTI off, compared with the trace run
+python bench/interference.py interference --mode plugin --out results/raw/ablation-plugin
+python bench/score.py interference results/raw/ablation-plugin
+python bench/compare_runs.py results/raw/interference results/raw/ablation-plugin
+
+# Open-loop overhead: 5 rounds, mode order rotated each round
+modes=(off plugin light trace)
+for r in 1 2 3 4 5; do for k in 0 1 2 3; do m=${modes[$(( (k + r - 1) % 4 ))]}
+  python bench/interference.py openloop --mode $m --round $r --rates 8,16,24 --seconds 40 --out results/raw/openloop-$m-r$r
+done; done
+python bench/score.py openloop results/raw/openloop-*
+
 # Closed-loop overhead, one server per collector mode
 for m in off light trace; do python bench/interference.py overhead --mode $m --out results/raw/overhead-$m; done
 python bench/score.py overhead results/raw/overhead-{off,light,trace}
@@ -241,7 +290,8 @@ environment with vLLM and the plugin, default the running interpreter),
 `--model` and `--revision` (a Hub id, or a local model directory),
 `--hf-home`, `--offline`, `--cache-root`, `--gpu-memory-utilization`
 (default 0.6) and `--lock FILE`, which holds that file's flock from server
-start to shutdown so runs on a shared GPU do not overlap. `bench/score.py`
+start to shutdown so runs on a shared GPU do not overlap. Each run records
+the host's load average in its `client.json`. `bench/score.py`
 raises the trace reader's budget to 8 GiB, which a 0.9 GB capture needs.
 
 The script also shows the whole setup:
