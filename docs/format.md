@@ -42,7 +42,7 @@ process in `target_producer`.
 | CudaEvent | corr, ctx, stream, event, event_sync_id, device_timestamp; a recorded CUDA event, matched to syncs by ctx and event_sync_id |
 | ClockProbe | probe, t0, t1, ctx, stream; host clock reads before and after the probe thread's 4-byte copy on its own stream, which the analyzer pairs with that copy's GpuActivity to bound clock error |
 | ClockCalibration | clock, calibrated, source; how GPU timestamps relate to the host clock, written at session start |
-| Diagnostic | source, reason; a collector component that could not run, such as a clock probe with no driver entry points or no context |
+| Diagnostic | source, reason, stopped; a component that could not run or gave up (`stopped`: true), such as the clock probe (with the driver `error` and the `probes` completed) or the vLLM plugin after a collector failure |
 | AdapterConfig | vllm_version, runner, executor, async_scheduling, cudagraph_mode, tensor_parallel_size, pipeline_parallel_size; written once by the vLLM plugin |
 | Step | step_id, t_begin, t_end, tid, members[{req_id, tokens, phase}], preempted, finished |
 | Request | req_id, start, end, prompt_tokens; optional queued_until, token_times |

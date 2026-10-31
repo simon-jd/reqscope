@@ -1,4 +1,5 @@
 #include "collector/backend.hpp"
+#include "collector/clock_probe.hpp"
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -107,12 +108,18 @@ void CUPTIAPI subscriber_callback(void*, CUpti_CallbackDomain domain,
 //   t0 = now(); cuMemcpyHtoDAsync(...); cuStreamSynchronize(...); t1 = now();
 // The copy's CUPTI [start, end] must then lie inside [t0, t1]. The analyzer
 // pairs each ClockProbe record with that copy (same context and stream) and
-// takes the worst bracket as the session's clock-error bound. The thread waits
-// for the application to create the primary context and never creates it.
-// The collector starts inside CUDA's injection hook, before the application
-// has a context, so the driver entry points are bound lazily on the thread.
-// A probe that cannot run says so in a Diagnostic record instead of leaving
-// the bound silently unknown.
+// takes the worst bracket as the session's clock-error bound. The logic is in
+// ClockProbeCore (clock_probe.hpp); this class owns the thread and binds the
+// real driver. The collector starts inside CUDA's injection hook, before the
+// application has a context, so the driver entry points are bound lazily on
+// the thread.
+int probe_context_id(void* context, uint32_t* id) {
+    return cuptiGetContextId(reinterpret_cast<CUcontext>(context), id) == CUPTI_SUCCESS ? 0 : 1;
+}
+int probe_stream_id(void* context, void* stream, uint32_t* id) {
+    return cuptiGetStreamIdEx(reinterpret_cast<CUcontext>(context), reinterpret_cast<CUstream>(stream), 0, id)
+        == CUPTI_SUCCESS ? 0 : 1;
+}
 class ClockProbe {
 public:
     void start(uint64_t interval_ms) {
@@ -130,116 +137,45 @@ private:
         target = reinterpret_cast<T>(dlsym(driver ? driver : RTLD_DEFAULT, name));
         return target != nullptr;
     }
-    bool load() {
+    bool load(ProbeDriver& d) {
         // The CUDA runtime loads libcuda with RTLD_LOCAL, so its symbols are
         // not in the global scope. Take a handle to the copy already loaded.
         if (!driver) driver = dlopen("libcuda.so.1", RTLD_NOW | RTLD_NOLOAD);
-        return bind(device_get, "cuDeviceGet") && bind(primary_state, "cuDevicePrimaryCtxGetState") &&
-               bind(primary_retain, "cuDevicePrimaryCtxRetain") && bind(primary_release, "cuDevicePrimaryCtxRelease_v2") &&
-               bind(set_current, "cuCtxSetCurrent") && bind(stream_create, "cuStreamCreate") &&
-               bind(stream_destroy, "cuStreamDestroy_v2") && bind(host_alloc, "cuMemAllocHost_v2") &&
-               bind(host_free, "cuMemFreeHost") && bind(device_alloc, "cuMemAlloc_v2") &&
-               bind(device_free, "cuMemFree_v2") && bind(copy_async, "cuMemcpyHtoDAsync_v2") &&
-               bind(synchronize, "cuStreamSynchronize") &&
-               bind(exchange_capture_mode, "cuThreadExchangeStreamCaptureMode");
-    }
-    bool ready() {
-        if (stream) return true;
-        int device = 0;
-        unsigned flags = 0;
-        int is_active = 0;
-        if (device_get(&device, 0) || primary_state(device, &flags, &is_active) || !is_active) return false;
-        if (primary_retain(&context, device)) return false;
-        retained = device + 1;
-        if (set_current(context)) return false;
-        // vLLM captures CUDA graphs in global capture mode, where an
-        // allocation or synchronization on any other thread invalidates the
-        // capture (cudaErrorStreamCaptureInvalidated at engine startup). In
-        // relaxed mode this thread's calls are allowed and leave captures
-        // alone; the probe never touches a capturing stream.
-        int relaxed = 2;  // CU_STREAM_CAPTURE_MODE_RELAXED
-        if (exchange_capture_mode(&relaxed)) return false;
-        if (stream_create(&stream, 1 /* CU_STREAM_NON_BLOCKING */) ||
-            host_alloc(&host, 64) || device_alloc(&target, 64)) return false;
-        uint32_t id = 0;
-        if (cuptiGetContextId(reinterpret_cast<CUcontext>(context), &context_id) != CUPTI_SUCCESS ||
-            cuptiGetStreamIdEx(reinterpret_cast<CUcontext>(context), reinterpret_cast<CUstream>(stream), 0, &id) != CUPTI_SUCCESS)
-            return false;
-        stream_id = id;
-        return true;
-    }
-    void diagnose(const char* reason) {
-        char record[256];
-        std::snprintf(record, sizeof record,
-                      "{\"type\":\"Diagnostic\",\"source\":\"clock_probe\",\"reason\":\"%s\"}", reason);
-        reqscope_emit_json(record);
+        d.context_id = probe_context_id;
+        d.stream_id = probe_stream_id;
+        return bind(d.device_get, "cuDeviceGet") && bind(d.primary_state, "cuDevicePrimaryCtxGetState") &&
+               bind(d.primary_retain, "cuDevicePrimaryCtxRetain") &&
+               bind(d.primary_release, "cuDevicePrimaryCtxRelease_v2") &&
+               bind(d.set_current, "cuCtxSetCurrent") && bind(d.stream_create, "cuStreamCreate") &&
+               bind(d.stream_destroy, "cuStreamDestroy_v2") && bind(d.host_alloc, "cuMemAllocHost_v2") &&
+               bind(d.host_free, "cuMemFreeHost") && bind(d.device_alloc, "cuMemAlloc_v2") &&
+               bind(d.device_free, "cuMemFree_v2") && bind(d.copy_async, "cuMemcpyHtoDAsync_v2") &&
+               bind(d.synchronize, "cuStreamSynchronize") &&
+               bind(d.exchange_capture_mode, "cuThreadExchangeStreamCaptureMode");
     }
     void run() {
-        uint64_t sequence = 0, waiting = 0;
-        bool loaded = false, reported = false;
+        auto emit = [](const std::string& record) { reqscope_emit_json(record.c_str()); };
+        ProbeDriver d;
+        const bool loaded = load(d);
+        ClockProbeCore core(d, emit, monotonic_ns);
+        if (!loaded) core.unavailable();
         std::unique_lock<std::mutex> lock(mutex);
-        while (!wake.wait_for(lock, interval, [this] { return stopping; })) {
+        while (!core.stopped() && !wake.wait_for(lock, interval, [this] { return stopping; })) {
             lock.unlock();
-            if (!loaded && !(loaded = load()) && !reported) {
-                diagnose("CUDA driver entry points not found; clock bound unknown");
-                reported = true;
-            }
-            const bool usable = loaded && ready();
-            // Before the application creates its context, not being ready is
-            // normal; after 20 intervals without one, report it once.
-            if (loaded && !usable && ++waiting == 20 && !reported) {
-                diagnose("no active primary context or probe stream after 20 intervals; clock bound unknown");
-                reported = true;
-            }
-            if (usable) {
-                const uint64_t t0 = monotonic_ns();
-                const int copied = copy_async(target, host, 4, stream);
-                const int synced = copied ? copied : synchronize(stream);
-                const uint64_t t1 = monotonic_ns();
-                if (!synced) {
-                    char record[256];
-                    std::snprintf(record, sizeof record,
-                                  "{\"type\":\"ClockProbe\",\"probe\":%llu,\"t0\":%llu,\"t1\":%llu,\"ctx\":%u,\"stream\":%u}",
-                                  static_cast<unsigned long long>(++sequence), static_cast<unsigned long long>(t0),
-                                  static_cast<unsigned long long>(t1), context_id, stream_id);
-                    reqscope_emit_json(record);
-                }
-            }
+            core.tick();
             lock.lock();
         }
         lock.unlock();
-        if (stream) { set_current(context); synchronize(stream); stream_destroy(stream); }
-        if (target) device_free(target);
-        if (host) host_free(host);
-        if (retained) primary_release(retained - 1);
+        core.release();
         if (driver) dlclose(driver);
+        driver = nullptr;
     }
-    int (*device_get)(int*, int) = nullptr;
-    int (*primary_state)(int, unsigned*, int*) = nullptr;
-    int (*primary_retain)(void**, int) = nullptr;
-    int (*primary_release)(int) = nullptr;
-    int (*set_current)(void*) = nullptr;
-    int (*stream_create)(void**, unsigned) = nullptr;
-    int (*stream_destroy)(void*) = nullptr;
-    int (*host_alloc)(void**, size_t) = nullptr;
-    int (*host_free)(void*) = nullptr;
-    int (*device_alloc)(unsigned long long*, size_t) = nullptr;
-    int (*device_free)(unsigned long long) = nullptr;
-    int (*copy_async)(unsigned long long, const void*, size_t, void*) = nullptr;
-    int (*synchronize)(void*) = nullptr;
-    int (*exchange_capture_mode)(int*) = nullptr;
     std::chrono::milliseconds interval{500};
     void* driver = nullptr;
     std::thread worker;
     std::mutex mutex;
     std::condition_variable wake;
     bool stopping = false;
-    void* context = nullptr;
-    void* stream = nullptr;
-    void* host = nullptr;
-    unsigned long long target = 0;
-    int retained = 0;
-    uint32_t context_id = 0, stream_id = 0;
 };
 ClockProbe clock_probe;
 
