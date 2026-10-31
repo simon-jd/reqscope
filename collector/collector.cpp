@@ -135,8 +135,8 @@ public:
         output = fs::absolute(env_string("REQSCOPE_OUTPUT", "reqscope-run"));
         fs::create_directories(output);
         mode = env_string("REQSCOPE_MODE", "light");
-        if (mode != "light" && mode != "trace" && mode != "synthetic" && mode != "manual")
-            throw std::runtime_error("REQSCOPE_MODE must be light, trace, synthetic, or manual");
+        if (mode != "light" && mode != "trace" && mode != "synthetic" && mode != "manual" && mode != "plugin")
+            throw std::runtime_error("REQSCOPE_MODE must be light, trace, plugin, synthetic, or manual");
         std::string boot = read_line("/proc/sys/kernel/random/boot_id");
         const uint64_t ticks = process_start();
         producer = boot + ":" + std::to_string(owner) + ":" + std::to_string(ticks);
@@ -170,14 +170,19 @@ public:
     void start() {
         instance.store(this, std::memory_order_release);
         backend = backend_start(env_string("REQSCOPE_BACKEND", "") == "manual" ? "manual" : mode);
-        if (backend.status == "manual") {
+        // Manual and synthetic records share one clock by construction. A
+        // plugin-only capture has no GPU records at all, so it has no GPU
+        // clock bound: clock_error_ns stays absent rather than 0.
+        if (backend.status == "manual" && mode != "plugin") {
             header["clock_error_ns"] = 0;
             header["clock_calibrated"] = true;
         }
-        header["data_kind"] = mode == "synthetic" ? "synthetic" : backend.status == "manual" ? "manual" : "cupti";
+        header["data_kind"] = mode == "synthetic" ? "synthetic" : mode == "plugin" ? "plugin"
+            : backend.status == "manual" ? "manual" : "cupti";
         header["slow_step_threshold_ns"] = slow_step_ns;
         header["max_automatic_snapshots"] = max_triggers;
-        header["gpu_granularity"] = mode == "light" ? "graph-envelope; eager kernels not traced" : "node";
+        header["gpu_granularity"] = mode == "light" ? "graph-envelope; eager kernels not traced"
+            : mode == "plugin" ? "none" : "node";
         header["libcupti_path"] = backend.path;
         header["libcupti_version"] = uint64_t(backend.version);
         header["cupti_host_buffer_count"] = backend.host_buffer_count;
@@ -413,9 +418,12 @@ public:
         try {
             emit(Json::object({{"type", "Session"}, {"state", header.string("session_state")},
                               {"backend_status", backend.status}, {"backend_error", backend.error}}));
+            const bool same_clock = backend.status == "manual" && mode != "plugin";
             emit(Json::object({{"type", "ClockCalibration"}, {"clock", "CLOCK_MONOTONIC"},
-                {"calibrated", backend.status == "manual"},
-                {"source", backend.status == "manual" ? "manual same-clock records" : "timestamp-callback; GPU bound unmeasured"}}));
+                {"calibrated", same_clock},
+                {"source", same_clock ? "manual same-clock records"
+                    : mode == "plugin" ? "plugin records only; no GPU records, GPU bound absent"
+                    : "timestamp-callback; GPU bound unmeasured"}}));
             while (!stopping.load()) {
                 unsigned budget = 512;
                 bool work = false;

@@ -83,7 +83,7 @@ def server(args, out: Path) -> subprocess.Popen:
                     "REQSCOPE_OUTPUT": str(out / "capture"), "REQSCOPE_RING_SECONDS": "3600",
                     "REQSCOPE_RING_BYTES": str(args.ring_bytes), "REQSCOPE_QUEUE_SLOTS": "1024"})
         if args.mode == "plugin":
-            env["REQSCOPE_MODE"] = "manual"           # the plugin's records only; CUPTI is never started
+            env["REQSCOPE_MODE"] = "plugin"           # the plugin's records only; CUPTI is never started
         else:
             env.update({"CUDA_INJECTION64_PATH": str(library), "REQSCOPE_MODE": args.mode,
                         "REQSCOPE_CUPTI_BUFFERS": "256"})

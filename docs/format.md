@@ -17,7 +17,9 @@ A header has `type=Header`, `format_version=1`, `producer`, `boot_id`,
 
 `clock_error_ns` missing or null means the bound was not measured. Zero is
 only for synthetic or manual records that really share one clock; it is
-never a default for GPU time. The collector also records the libcupti path
+never a default for GPU time. A plugin-only capture (`REQSCOPE_MODE=plugin`:
+the vLLM plugin's records, CUPTI never started) has no GPU records and no
+`clock_error_ns`. The collector also records the libcupti path
 and API version it loaded, how it subscribed, its state, its mode and its
 buffer configuration.
 

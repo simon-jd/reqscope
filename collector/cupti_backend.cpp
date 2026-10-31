@@ -243,7 +243,7 @@ Json graph_resource_json(const GraphResource& event) {
 BackendInfo backend_start(const std::string& mode) {
     BackendInfo info;
     graph_mode = mode == "light";
-    if (mode == "synthetic" || mode == "manual") {
+    if (mode == "synthetic" || mode == "manual" || mode == "plugin") {
         info.status = "manual"; return info;
     }
 #ifdef REQSCOPE_HAS_CUPTI

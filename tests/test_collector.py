@@ -219,6 +219,26 @@ assert lib.reqscope_flush() == 0
         self.assertEqual(manifest["session_state"], "Snapshot")
 
 
+    @unittest.skipUnless(BIN.is_file(), "build reqscope first")
+    def test_plugin_only_capture_has_no_gpu_clock_bound(self):
+        self.env.pop("REQSCOPE_BACKEND")
+        self.env["REQSCOPE_MODE"] = "plugin"
+        self.child('''
+row = {"type":"Request", "req_id":"r", "start":1, "end":9, "prompt_tokens":1, "token_times":[2, 3, 4]}
+assert lib.reqscope_emit_json(json.dumps(row).encode()) == 0
+assert lib.reqscope_flush() == 0
+''')
+        recording = read_run(self.output)
+        [header] = recording.headers.values()
+        self.assertNotIn("clock_error_ns", header)
+        self.assertFalse(header["clock_calibrated"])
+        self.assertEqual(header["data_kind"], "plugin")
+        [calibration] = [r for r in recording.records if r["type"] == "ClockCalibration"]
+        self.assertFalse(calibration["calibrated"])
+        blame = subprocess.run([str(BIN), "blame", str(self.output)], text=True, capture_output=True, timeout=20)
+        self.assertEqual(blame.returncode, 0, blame.stderr)
+        self.assertIsNone(json.loads(blame.stdout)["clocks"][0]["clock_error_ns"])
+
     def test_writer_failure_stops_the_plugin_without_raising_into_the_engine(self):
         # A file-size limit makes the writer's first drain fail with EFBIG, the
         # way a full disk fails a write.
