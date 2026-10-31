@@ -57,6 +57,54 @@ That entry is the capture's missing end marker: vLLM SIGKILLs EngineCore
 right after the final flush, so no `Finalized` session record is written,
 and the analyzer records the open end as a loss of unknown size.
 
+This run was captured with an earlier build of the collector; the
+comparison below repeats the experiment with the current one.
+
+## With CUPTI off: what GPU data adds, and what tracing costs
+
+The same workload ran in back-to-back pairs: trace mode, then the plugin
+alone with CUPTI never started (`--mode plugin`). The host is shared with
+other projects' jobs, so its 1-minute load average is recorded per run.
+
+| Run | Collector | Host load | Slow steps | In-window steps blamed on that prompt (recall) | Precision | Unexplained steps | Excess on long prompts |
+|---|---|---|---|---|---|---|---|
+| headline run (earlier build) | trace | not recorded | 30 | 18 of 22 (0.82) | 1.00 | 11 | 92.9% |
+| pair 1 | trace | about 9–10 | 129 | 18 of 25 (0.72) | 1.00 | 110 | 58.5% |
+| pair 1 | plugin only | about 9–10 | 33 | 18 of 21 (0.86) | 1.00 | 14 | 91.9% |
+| pair 2 | trace | 1.7 | 71 | 18 of 26 (0.69) | 1.00 | 52 | 74.9% |
+| pair 2 | plugin only | 1.9 | 27 | 18 of 24 (0.75) | 1.00 | 8 | 96.2% |
+
+Pair 1's load comes from `uptime` during the pair (8.8 over 1 minute, 10.4
+over 5); the per-run sampler started after it. Per-run details, including
+the medians below, are in [results/ablation.json](results/ablation.json).
+
+- **The verdict is the same without GPU data.** Every run blames exactly 18
+  steps on a long prompt, the six prompts' three prefill chunks each, all
+  inside that prompt's window, and the top six culprits are always the six
+  prompts. `blame` assigns excess from the plugin's step membership alone.
+- **GPU data says what kind of slow step it was.** With CUPTI, the blamed
+  steps show about 49–50 ms of GPU busy time in gaps of the same length: the GPU was doing
+  the prefill. The unexplained steps show 6.0–6.3 ms, an ordinary decode
+  step, in 9–10 ms gaps (medians per run), so the rest of the gap was host time.
+  With CUPTI off, both kinds look only like long gaps.
+- **Tracing changes what it measures.** In both pairs trace mode had many
+  more slow steps than the plugin alone (129 against 33, 71 against 27).
+  The extra ones are decode steps with ordinary GPU time and longer gaps:
+  host-side delay. Pair 2 ran on a quiet host (load 1.7–1.9), so other
+  jobs do not explain the difference; tracing does, by an amount that
+  varies between runs (the headline trace run had 30). The longer host
+  span of the blamed steps in pair 1 (17.7 ms against 5.7 ms) did not
+  reproduce on the quiet host (9.4 against 8.4 ms), so it more likely came
+  from the load of other jobs.
+
+What each mode is for:
+- **plugin only:** always-on attribution of interference between requests.
+  The same culprits, but a host stall and GPU work look alike.
+- **light:** adds GPU time per CUDA graph launch (graph envelopes), which
+  this experiment did not validate.
+- **trace:** per-kernel GPU time that separates GPU-bound from host-bound
+  slow steps. Use it for short captures: it adds slow steps of its own.
+
 ## Getting the measurement right
 
 The first real run produced plausible-looking output that was wrong in
@@ -99,7 +147,7 @@ GpuActivity --corr--> ApiCall --corr--> ExtCorr(step_id) --> Step --members--> R
    (`producing_steps`) and the output carries a warning.
 3. **Report that step's evidence:**
    - GPU busy time: the union of its linked kernels and copies, measured in
-     GPU time;
+     GPU time (none with CUPTI off);
    - its co-scheduled members, with phase and tokens.
 4. **Assign the excess.** It is split over the prefill tokens co-scheduled
    in that step. With no co-scheduled prefill, the gap is reported as

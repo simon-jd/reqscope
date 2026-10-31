@@ -13,6 +13,7 @@ here are derived from them.
 | `overhead.json` | `overhead-{off,light,trace}`, then `-r2` and `-r3` | `bench/score.py overhead`; one row per run, rounds 1 to 3 in order |
 | `../docs/slow-steps.svg` | `interference-s5` | `bench/plot_steps.py`, from `interference-blame.json` and `interference-steps.json` |
 | `environment.json` | the host | `bench/environment.py`: Python, vLLM, torch, CUDA toolkit, CUPTI, driver, GPU, kernel, CPU |
+| `ablation.json` | `interference-s5`, then `ablation-trace` and `ablation-plugin` (pair 1) and `ablation-trace-2` and `ablation-plugin-2` (pair 2) | `bench/compare_runs.py --load`, after `bench/score.py interference` on each |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
 
 Notes:
@@ -32,5 +33,16 @@ Notes:
   policy (`all-driver-runtime` for s1 to s3, the submission/copy/sync
   whitelist for s4), and s1's segments are 1 MiB where the later runs'
   reach 16 MiB. Their scores are not committed.
+- The CUPTI-off pairs used the collector and bench
+  scripts of commit 2c85655, with `--gpu-memory-utilization 0.6`; each run
+  held the host's GPU lock. All but `interference-s5` (which keeps its
+  original `blame.json`) were scored with the current analyzer. Their host load comes from a
+  `bench/sample_load.py` CSV sampled every 5 s through the session (not
+  committed; `client.json` records load itself from the next commit on).
+  The sampler started after pair 1, whose load (8.8 over 1 minute, 10.4
+  over 5) was read with `uptime` during the pair.
+- The plugin-only captures predate the fix that leaves `clock_error_ns`
+  absent in plugin mode, so their headers still claim 0. They have no GPU
+  records, and `ablation.json` reports no clock values.
 - Overhead rounds 2 and 3 kept only client timings, so the write rates in
   `captures.json` come from round 1.

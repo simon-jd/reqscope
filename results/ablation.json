@@ -1,0 +1,255 @@
+[
+  {
+    "run": "interference-s5",
+    "mode": "trace",
+    "load1_mean": null,
+    "gpu_activities": 1689649,
+    "decode_slow_gaps": 465,
+    "slow_steps": 30,
+    "slow_steps_inside_a_long_prompt_window": 22,
+    "of_those_blamed_on_that_prompt": 18,
+    "slow_steps_blamed_on_a_long_prompt_outside_every_window": 0,
+    "slow_steps_blamed_only_on_other_requests": 1,
+    "slow_steps_unexplained": 11,
+    "of_those_inside_a_long_prompt_window": 4,
+    "per_step": {
+      "precision": 1.0,
+      "recall": 0.8182
+    },
+    "per_gap": {
+      "precision": 1.0,
+      "recall": 0.8182
+    },
+    "excess_share": {
+      "long": 0.9289,
+      "other": 0.0023,
+      "unexplained": 0.0688
+    },
+    "top_culprits": [
+      "long-5",
+      "long-4",
+      "long-3",
+      "long-2",
+      "long-1",
+      "long-0"
+    ],
+    "blamed_steps": {
+      "steps": 18,
+      "median_gap_ms": 49.08,
+      "median_gpu_busy_ms": 48.79,
+      "median_host_ms": 7.38
+    },
+    "unexplained_steps": {
+      "steps": 11,
+      "median_gap_ms": 10.13,
+      "median_gpu_busy_ms": 5.98,
+      "median_host_ms": 2.22
+    },
+    "trace_status": null,
+    "warnings": null
+  },
+  {
+    "run": "ablation-trace",
+    "mode": "trace",
+    "load1_mean": null,
+    "gpu_activities": 1689643,
+    "decode_slow_gaps": 2049,
+    "slow_steps": 129,
+    "slow_steps_inside_a_long_prompt_window": 25,
+    "of_those_blamed_on_that_prompt": 18,
+    "slow_steps_blamed_on_a_long_prompt_outside_every_window": 0,
+    "slow_steps_blamed_only_on_other_requests": 1,
+    "slow_steps_unexplained": 110,
+    "of_those_inside_a_long_prompt_window": 7,
+    "per_step": {
+      "precision": 1.0,
+      "recall": 0.72
+    },
+    "per_gap": {
+      "precision": 1.0,
+      "recall": 0.72
+    },
+    "excess_share": {
+      "long": 0.5853,
+      "other": 0.0009,
+      "unexplained": 0.4137
+    },
+    "top_culprits": [
+      "long-3",
+      "long-0",
+      "long-2",
+      "long-4",
+      "long-5",
+      "long-1"
+    ],
+    "blamed_steps": {
+      "steps": 18,
+      "median_gap_ms": 48.6,
+      "median_gpu_busy_ms": 49.22,
+      "median_host_ms": 17.67
+    },
+    "unexplained_steps": {
+      "steps": 110,
+      "median_gap_ms": 8.98,
+      "median_gpu_busy_ms": 6.08,
+      "median_host_ms": 2.42
+    },
+    "trace_status": "Partial",
+    "warnings": [
+      "trace is Partial: missing_finalized_or_snapshot_boundary (1)"
+    ]
+  },
+  {
+    "run": "ablation-plugin",
+    "mode": "plugin",
+    "load1_mean": null,
+    "gpu_activities": 0,
+    "decode_slow_gaps": 513,
+    "slow_steps": 33,
+    "slow_steps_inside_a_long_prompt_window": 21,
+    "of_those_blamed_on_that_prompt": 18,
+    "slow_steps_blamed_on_a_long_prompt_outside_every_window": 0,
+    "slow_steps_blamed_only_on_other_requests": 1,
+    "slow_steps_unexplained": 14,
+    "of_those_inside_a_long_prompt_window": 3,
+    "per_step": {
+      "precision": 1.0,
+      "recall": 0.8571
+    },
+    "per_gap": {
+      "precision": 1.0,
+      "recall": 0.8571
+    },
+    "excess_share": {
+      "long": 0.9193,
+      "other": 0.0023,
+      "unexplained": 0.0785
+    },
+    "top_culprits": [
+      "long-4",
+      "long-5",
+      "long-3",
+      "long-1",
+      "long-2",
+      "long-0"
+    ],
+    "blamed_steps": {
+      "steps": 18,
+      "median_gap_ms": 48.94,
+      "median_gpu_busy_ms": 0.0,
+      "median_host_ms": 5.7
+    },
+    "unexplained_steps": {
+      "steps": 14,
+      "median_gap_ms": 8.61,
+      "median_gpu_busy_ms": 0.0,
+      "median_host_ms": 2.16
+    },
+    "trace_status": "Partial",
+    "warnings": [
+      "trace is Partial: missing_finalized_or_snapshot_boundary (1)"
+    ]
+  },
+  {
+    "run": "ablation-trace-2",
+    "mode": "trace",
+    "load1_mean": 1.71,
+    "gpu_activities": 1689639,
+    "decode_slow_gaps": 1121,
+    "slow_steps": 71,
+    "slow_steps_inside_a_long_prompt_window": 26,
+    "of_those_blamed_on_that_prompt": 18,
+    "slow_steps_blamed_on_a_long_prompt_outside_every_window": 0,
+    "slow_steps_blamed_only_on_other_requests": 1,
+    "slow_steps_unexplained": 52,
+    "of_those_inside_a_long_prompt_window": 8,
+    "per_step": {
+      "precision": 1.0,
+      "recall": 0.6923
+    },
+    "per_gap": {
+      "precision": 1.0,
+      "recall": 0.6923
+    },
+    "excess_share": {
+      "long": 0.749,
+      "other": 0.0017,
+      "unexplained": 0.2493
+    },
+    "top_culprits": [
+      "long-5",
+      "long-3",
+      "long-4",
+      "long-2",
+      "long-1",
+      "long-0"
+    ],
+    "blamed_steps": {
+      "steps": 18,
+      "median_gap_ms": 50.25,
+      "median_gpu_busy_ms": 49.94,
+      "median_host_ms": 9.4
+    },
+    "unexplained_steps": {
+      "steps": 52,
+      "median_gap_ms": 9.94,
+      "median_gpu_busy_ms": 6.29,
+      "median_host_ms": 2.38
+    },
+    "trace_status": "Partial",
+    "warnings": [
+      "trace is Partial: missing_finalized_or_snapshot_boundary (1)"
+    ]
+  },
+  {
+    "run": "ablation-plugin-2",
+    "mode": "plugin",
+    "load1_mean": 1.91,
+    "gpu_activities": 0,
+    "decode_slow_gaps": 417,
+    "slow_steps": 27,
+    "slow_steps_inside_a_long_prompt_window": 24,
+    "of_those_blamed_on_that_prompt": 18,
+    "slow_steps_blamed_on_a_long_prompt_outside_every_window": 0,
+    "slow_steps_blamed_only_on_other_requests": 1,
+    "slow_steps_unexplained": 8,
+    "of_those_inside_a_long_prompt_window": 6,
+    "per_step": {
+      "precision": 1.0,
+      "recall": 0.75
+    },
+    "per_gap": {
+      "precision": 1.0,
+      "recall": 0.75
+    },
+    "excess_share": {
+      "long": 0.9615,
+      "other": 0.0023,
+      "unexplained": 0.0362
+    },
+    "top_culprits": [
+      "long-5",
+      "long-4",
+      "long-3",
+      "long-2",
+      "long-1",
+      "long-0"
+    ],
+    "blamed_steps": {
+      "steps": 18,
+      "median_gap_ms": 49.49,
+      "median_gpu_busy_ms": 0.0,
+      "median_host_ms": 8.41
+    },
+    "unexplained_steps": {
+      "steps": 8,
+      "median_gap_ms": 8.71,
+      "median_gpu_busy_ms": 0.0,
+      "median_host_ms": 2.63
+    },
+    "trace_status": "Partial",
+    "warnings": [
+      "trace is Partial: missing_finalized_or_snapshot_boundary (1)"
+    ]
+  }
+]
