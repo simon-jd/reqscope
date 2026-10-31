@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 320" width="820" height="320" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
+<style>text{fill:#24292f}.axis{stroke:#57606a}.grid{stroke:#d0d7de}.band{fill:#2f6fd6;opacity:.10}@media (prefers-color-scheme: dark){text{fill:#e6edf3}.axis{stroke:#8b949e}.grid{stroke:#30363d}.band{opacity:.22}}</style>
+<rect class="band" x="131.4" y="56" width="6.2" height="220"/>
+<text x="131.4" y="50" font-size="10">long-0</text>
+<rect class="band" x="246.0" y="56" width="6.3" height="220"/>
+<text x="246.0" y="50" font-size="10">long-1</text>
+<rect class="band" x="360.6" y="56" width="6.3" height="220"/>
+<text x="360.6" y="50" font-size="10">long-2</text>
+<rect class="band" x="475.2" y="56" width="6.3" height="220"/>
+<text x="475.2" y="50" font-size="10">long-3</text>
+<rect class="band" x="589.7" y="56" width="6.5" height="220"/>
+<text x="589.7" y="50" font-size="10">long-4</text>
+<rect class="band" x="704.3" y="56" width="6.9" height="220"/>
+<text x="704.3" y="50" font-size="10">long-5</text>
+<line class="grid" x1="56" x2="804" y1="276.0" y2="276.0"/>
+<text x="48" y="280.0" text-anchor="end">0</text>
+<line class="grid" x1="56" x2="804" y1="239.3" y2="239.3"/>
+<text x="48" y="243.3" text-anchor="end">10</text>
+<line class="grid" x1="56" x2="804" y1="202.7" y2="202.7"/>
+<text x="48" y="206.7" text-anchor="end">20</text>
+<line class="grid" x1="56" x2="804" y1="166.0" y2="166.0"/>
+<text x="48" y="170.0" text-anchor="end">30</text>
+<line class="grid" x1="56" x2="804" y1="129.3" y2="129.3"/>
+<text x="48" y="133.3" text-anchor="end">40</text>
+<line class="grid" x1="56" x2="804" y1="92.7" y2="92.7"/>
+<text x="48" y="96.7" text-anchor="end">50</text>
+<line class="grid" x1="56" x2="804" y1="56.0" y2="56.0"/>
+<text x="48" y="60.0" text-anchor="end">60</text>
+<line class="axis" stroke-dasharray="4 3" x1="56" x2="804" y1="256.1" y2="256.1"/>
+<text x="62" y="269.1" font-size="10">typical decode gap 5.43 ms</text>
+<line class="axis" x1="56.0" x2="56.0" y1="276" y2="280"/>
+<text x="56.0" y="293" text-anchor="middle">0</text>
+<line class="axis" x1="132.3" x2="132.3" y1="276" y2="280"/>
+<text x="132.3" y="293" text-anchor="middle">2</text>
+<line class="axis" x1="208.7" x2="208.7" y1="276" y2="280"/>
+<text x="208.7" y="293" text-anchor="middle">4</text>
+<line class="axis" x1="285.0" x2="285.0" y1="276" y2="280"/>
+<text x="285.0" y="293" text-anchor="middle">6</text>
+<line class="axis" x1="361.4" x2="361.4" y1="276" y2="280"/>
+<text x="361.4" y="293" text-anchor="middle">8</text>
+<line class="axis" x1="437.7" x2="437.7" y1="276" y2="280"/>
+<text x="437.7" y="293" text-anchor="middle">10</text>
+<line class="axis" x1="514.1" x2="514.1" y1="276" y2="280"/>
+<text x="514.1" y="293" text-anchor="middle">12</text>
+<line class="axis" x1="590.4" x2="590.4" y1="276" y2="280"/>
+<text x="590.4" y="293" text-anchor="middle">14</text>
+<line class="axis" x1="666.8" x2="666.8" y1="276" y2="280"/>
+<text x="666.8" y="293" text-anchor="middle">16</text>
+<line class="axis" x1="743.1" x2="743.1" y1="276" y2="280"/>
+<text x="743.1" y="293" text-anchor="middle">18</text>
+<line class="axis" x1="56" x2="804" y1="276" y2="276"/>
+<text x="430" y="312" text-anchor="middle">seconds into the run (slow steps of the 16 lockstep decodes)</text>
+<text transform="translate(14 166) rotate(-90)" text-anchor="middle">inter-token gap, ms</text>
+<circle cx="56.0" cy="147.6" r="4.5" fill="#8a63c9" fill-opacity=".85"><title>step 17: 35.03 ms gap, GPU busy 39.89 ms, blamed on other requests</title></circle>
+<circle cx="131.6" cy="244.0" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 438: 8.73 ms gap, GPU busy 4.59 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="131.9" cy="138.7" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 439: 37.45 ms gap, GPU busy 41.09 ms, blamed on a long prompt</title></circle>
+<circle cx="133.3" cy="102.8" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 440: 47.23 ms gap, GPU busy 46.98 ms, blamed on a long prompt</title></circle>
+<circle cx="135.1" cy="89.0" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 441: 51.0 ms gap, GPU busy 50.52 ms, blamed on a long prompt</title></circle>
+<circle cx="246.4" cy="129.2" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 1038: 40.03 ms gap, GPU busy 41.79 ms, blamed on a long prompt</title></circle>
+<circle cx="247.9" cy="100.2" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 1039: 47.95 ms gap, GPU busy 47.63 ms, blamed on a long prompt</title></circle>
+<circle cx="249.7" cy="86.0" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 1040: 51.83 ms gap, GPU busy 51.64 ms, blamed on a long prompt</title></circle>
+<circle cx="251.7" cy="233.4" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 1041: 11.62 ms gap, GPU busy 5.0 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="361.0" cy="122.3" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 1603: 41.92 ms gap, GPU busy 42.42 ms, blamed on a long prompt</title></circle>
+<circle cx="362.6" cy="96.8" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 1604: 48.88 ms gap, GPU busy 48.55 ms, blamed on a long prompt</title></circle>
+<circle cx="364.4" cy="82.8" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 1605: 52.69 ms gap, GPU busy 52.51 ms, blamed on a long prompt</title></circle>
+<circle cx="475.6" cy="121.4" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 2138: 42.17 ms gap, GPU busy 43.11 ms, blamed on a long prompt</title></circle>
+<circle cx="477.2" cy="95.3" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 2139: 49.28 ms gap, GPU busy 49.03 ms, blamed on a long prompt</title></circle>
+<circle cx="479.1" cy="80.7" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 2140: 53.27 ms gap, GPU busy 52.99 ms, blamed on a long prompt</title></circle>
+<circle cx="590.0" cy="115.7" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 2649: 43.72 ms gap, GPU busy 44.05 ms, blamed on a long prompt</title></circle>
+<circle cx="591.7" cy="93.0" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 2650: 49.91 ms gap, GPU busy 49.71 ms, blamed on a long prompt</title></circle>
+<circle cx="593.6" cy="77.6" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 2651: 54.1 ms gap, GPU busy 53.78 ms, blamed on a long prompt</title></circle>
+<circle cx="596.0" cy="227.5" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 2653: 13.22 ms gap, GPU busy 5.79 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="685.0" cy="238.9" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3047: 10.13 ms gap, GPU busy 6.3 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="697.9" cy="236.6" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3102: 10.75 ms gap, GPU busy 5.93 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="699.1" cy="219.3" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3107: 15.45 ms gap, GPU busy 5.92 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="704.5" cy="236.7" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3129: 10.71 ms gap, GPU busy 5.98 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="704.9" cy="122.3" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 3130: 41.92 ms gap, GPU busy 46.24 ms, blamed on a long prompt</title></circle>
+<circle cx="706.5" cy="85.7" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 3131: 51.91 ms gap, GPU busy 51.54 ms, blamed on a long prompt</title></circle>
+<circle cx="708.5" cy="70.3" r="4.5" fill="#2f6fd6" fill-opacity=".85"><title>step 3132: 56.09 ms gap, GPU busy 55.98 ms, blamed on a long prompt</title></circle>
+<circle cx="713.6" cy="239.8" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3146: 9.87 ms gap, GPU busy 6.37 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="768.1" cy="246.1" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3376: 8.15 ms gap, GPU busy 6.08 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="768.6" cy="245.1" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3378: 8.44 ms gap, GPU busy 6.07 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="775.2" cy="242.2" r="4.5" fill="#e07b28" fill-opacity=".85"><title>step 3406: 9.21 ms gap, GPU busy 6.55 ms, unexplained (no co-scheduled prefill)</title></circle>
+<circle cx="66" cy="14" r="4.5" fill="#2f6fd6"/>
+<text x="75" y="18">blamed on a long prompt</text>
+<circle cx="260" cy="14" r="4.5" fill="#e07b28"/>
+<text x="269" y="18">unexplained (no co-scheduled prefill)</text>
+<circle cx="552" cy="14" r="4.5" fill="#8a63c9"/>
+<text x="561" y="18">blamed on other requests</text>
+</svg>

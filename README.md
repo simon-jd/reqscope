@@ -34,6 +34,10 @@ with the decodes. The client records when each long prompt was in prefill
 | CPU/GPU clock bound, measured in the same run | **280 µs** (59 paired probes, no violations) |
 | Records captured / lost | 2.06M records, 1.69M of them GPU activities (99.0% linked to steps) / **0 lost** |
 
+![Slow engine steps over the run: the steps blamed on a long prompt sit in
+its prefill window; the unexplained ones are 8-15 ms decode
+steps](docs/slow-steps.svg)
+
 The 16 decodes run in lockstep, so one slow engine step shows up as up to
 16 slow gaps: the 465 slow decode gaps come from 30 steps
 ([results/interference-steps.json](results/interference-steps.json) scores

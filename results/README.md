@@ -11,6 +11,7 @@ here are derived from them.
 | `interference-blame.json` | `interference-s5` | `reqscope blame` on its capture (`score.py` saves it as `blame.json`) |
 | `interference-steps.json` | `interference-s5` | `bench/score_steps.py`, from `blame.json` and the client's ground truth; it includes the six long prompts' windows |
 | `overhead.json` | `overhead-{off,light,trace}`, then `-r2` and `-r3` | `bench/score.py overhead`; one row per run, rounds 1 to 3 in order |
+| `../docs/slow-steps.svg` | `interference-s5` | `bench/plot_steps.py`, from `interference-blame.json` and `interference-steps.json` |
 | `environment.json` | the host | `bench/environment.py`: Python, vLLM, torch, CUDA toolkit, CUPTI, driver, GPU, kernel, CPU |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
 
