@@ -1,0 +1,418 @@
+[
+  {
+    "run": "interference-s5",
+    "mode": "trace",
+    "api_capture_policy": "cupti-native-whitelist-v1",
+    "load_seconds": 22.798,
+    "capture_bytes": 902740327,
+    "segments": 58,
+    "segment_bytes_median": 16777462,
+    "records": 2055908,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 167955,
+      "ClockCalibration": 1,
+      "ClockProbe": 60,
+      "CudaEvent": 24748,
+      "ExtCorr": 126310,
+      "GpuActivity": 1689708,
+      "Header": 58,
+      "Request": 23,
+      "RequestTokens": 48,
+      "Session": 1,
+      "Step": 4018,
+      "Sync": 43035
+    },
+    "api_calls_top": {
+      "cudaLaunchKernel_v7000": 53148,
+      "cuLaunchKernelEx": 32718,
+      "cudaEventRecordWithFlags_v11010": 24748,
+      "cuLaunchKernel": 20052,
+      "cudaMemcpyAsync_v3020": 17528,
+      "cudaStreamWaitEvent_v3020": 4017,
+      "cudaGraphLaunch_v10000": 4017,
+      "cudaEventSynchronize_v3020": 4009
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1533537:102696864": 2055908
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "kernel": {
+        "total": 1666816,
+        "untimed": 0
+      },
+      "memcpy": {
+        "total": 21734,
+        "untimed": 0
+      },
+      "memset": {
+        "total": 1158,
+        "untimed": 0
+      }
+    },
+    "loss_counts": {},
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 880076793,
+    "load_window_mb_per_s": 38.6
+  },
+  {
+    "run": "overhead-light",
+    "mode": "light",
+    "api_capture_policy": "cupti-native-whitelist-v1",
+    "load_seconds": 60.056,
+    "capture_bytes": 375062893,
+    "segments": 66,
+    "segment_bytes_median": 5762280,
+    "records": 1332768,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 567563,
+      "ClockCalibration": 1,
+      "ClockProbe": 133,
+      "CudaEvent": 56493,
+      "ExtCorr": 513560,
+      "GpuActivity": 86774,
+      "Header": 66,
+      "Request": 1985,
+      "Session": 1,
+      "Step": 8088,
+      "Sync": 98169
+    },
+    "api_calls_top": {
+      "cudaLaunchKernel_v7000": 188813,
+      "cuLaunchKernel": 124881,
+      "cuLaunchKernelEx": 73992,
+      "cudaEventRecordWithFlags_v11010": 56493,
+      "cudaMemsetAsync_v3020": 52958,
+      "cudaMemcpyAsync_v3020": 41133,
+      "cudaStreamWaitEvent_v3020": 8087,
+      "cudaEventSynchronize_v3020": 8079
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1539560:102708517": 1332768
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "graph": {
+        "total": 7483,
+        "untimed": 0
+      },
+      "memcpy": {
+        "total": 41229,
+        "untimed": 0
+      },
+      "memset": {
+        "total": 38062,
+        "untimed": 0
+      }
+    },
+    "loss_counts": {},
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 361972150,
+    "load_window_mb_per_s": 6.0
+  },
+  {
+    "run": "overhead-trace",
+    "mode": "trace",
+    "api_capture_policy": "cupti-native-whitelist-v1",
+    "load_seconds": 60.751,
+    "capture_bytes": 2165433610,
+    "segments": 133,
+    "segment_bytes_median": 16777384,
+    "records": 5112596,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 551755,
+      "ClockCalibration": 1,
+      "ClockProbe": 135,
+      "CudaEvent": 55281,
+      "ExtCorr": 498168,
+      "GpuActivity": 3903112,
+      "Header": 133,
+      "Request": 1927,
+      "Session": 1,
+      "Step": 7948,
+      "Sync": 94267
+    },
+    "api_calls_top": {
+      "cudaLaunchKernel_v7000": 183675,
+      "cuLaunchKernel": 119390,
+      "cuLaunchKernelEx": 72433,
+      "cudaEventRecordWithFlags_v11010": 55281,
+      "cudaMemsetAsync_v3020": 51866,
+      "cudaMemcpyAsync_v3020": 40201,
+      "cudaStreamWaitEvent_v3020": 7947,
+      "cudaEventSynchronize_v3020": 7939
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1543216:102716170": 5112596
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "kernel": {
+        "total": 3618970,
+        "untimed": 0
+      },
+      "memcpy": {
+        "total": 47756,
+        "untimed": 0
+      },
+      "memset": {
+        "total": 236386,
+        "untimed": 0
+      }
+    },
+    "loss_counts": {},
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 2141735090,
+    "load_window_mb_per_s": 35.3
+  },
+  {
+    "run": "interference-s1",
+    "mode": "trace",
+    "api_capture_policy": "all-driver-runtime",
+    "load_seconds": 22.723,
+    "capture_bytes": 724810094,
+    "segments": 703,
+    "segment_bytes_median": 1048746,
+    "records": 2271335,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 1144743,
+      "ClockCalibration": 1,
+      "CudaEvent": 10349,
+      "ExtCorr": 606280,
+      "GpuActivity": 485195,
+      "Header": 702,
+      "Loss": 4030,
+      "Request": 7,
+      "Session": 1,
+      "Step": 3878,
+      "Sync": 16850
+    },
+    "api_calls_top": {
+      "cudaGetDevice_v3020": 575746,
+      "cuDevicePrimaryCtxGetState": 205270,
+      "cuPointerGetAttribute": 73338,
+      "cudaGetLastError_v3020": 42830,
+      "cuCtxGetCurrent": 29465,
+      "cudaLaunchKernel_v7000": 25515,
+      "cuKernelGetName": 25507,
+      "cudaStreamGetCaptureInfo_v12030": 22127
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1106000:101889909": 4962995
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "kernel": {
+        "total": 477552,
+        "untimed": 0
+      },
+      "memcpy": {
+        "total": 6815,
+        "untimed": 0
+      },
+      "memset": {
+        "total": 828,
+        "untimed": 0
+      }
+    },
+    "loss_counts": {
+      "cupti_dropped (CUPTI-reported-activity-records)": 460050,
+      "cupti_pool_exhausted (buffer_requests)": 2231610
+    },
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 527928135,
+    "load_window_mb_per_s": 23.2
+  },
+  {
+    "run": "interference-s2",
+    "mode": "trace",
+    "api_capture_policy": "all-driver-runtime",
+    "load_seconds": 22.756,
+    "capture_bytes": 2029361388,
+    "segments": 124,
+    "segment_bytes_median": 16777370,
+    "records": 6377694,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 2547903,
+      "ClockCalibration": 1,
+      "CudaEvent": 24720,
+      "ExtCorr": 2069556,
+      "GpuActivity": 1688376,
+      "Header": 124,
+      "Request": 7,
+      "RequestTokens": 48,
+      "Session": 1,
+      "Step": 4015,
+      "Sync": 43066
+    },
+    "api_calls_top": {
+      "cudaGetDevice_v3020": 1276413,
+      "cuDevicePrimaryCtxGetState": 478237,
+      "cuPointerGetAttribute": 243715,
+      "cudaGetLastError_v3020": 86225,
+      "cuCtxGetCurrent": 59178,
+      "cudaLaunchKernel_v7000": 53111,
+      "cuKernelGetName": 53103,
+      "cudaStreamIsCapturing_v10000": 46111
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1202287:102051390": 6377694
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "kernel": {
+        "total": 1665564,
+        "untimed": 0
+      },
+      "memcpy": {
+        "total": 21654,
+        "untimed": 0
+      },
+      "memset": {
+        "total": 1158,
+        "untimed": 0
+      }
+    },
+    "loss_counts": {},
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 1872114958,
+    "load_window_mb_per_s": 82.3
+  },
+  {
+    "run": "interference-s3",
+    "mode": "trace",
+    "api_capture_policy": "all-driver-runtime",
+    "load_seconds": 22.677,
+    "capture_bytes": 1064416773,
+    "segments": 111,
+    "segment_bytes_median": 16777228,
+    "records": 3676556,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 1818189,
+      "ClockCalibration": 1,
+      "ClockProbe": 149,
+      "CudaEvent": 16171,
+      "ExtCorr": 1363255,
+      "GpuActivity": 442312,
+      "Header": 111,
+      "Loss": 3536,
+      "Request": 23,
+      "RequestTokens": 48,
+      "Session": 1,
+      "Step": 4018,
+      "Sync": 28852
+    },
+    "api_calls_top": {
+      "cudaGetDevice_v3020": 912671,
+      "cuDevicePrimaryCtxGetState": 337344,
+      "cuPointerGetAttribute": 159112,
+      "cudaGetLastError_v3020": 63573,
+      "cuCtxGetCurrent": 44207,
+      "cudaLaunchKernel_v7000": 38162,
+      "cuKernelGetName": 38154,
+      "cudaStreamIsCapturing_v10000": 30407
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1497755:102626416": 6669884
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "kernel": {
+        "total": 428366,
+        "untimed": 35011
+      },
+      "memcpy": {
+        "total": 12956,
+        "untimed": 7049
+      },
+      "memset": {
+        "total": 990,
+        "untimed": 252
+      }
+    },
+    "loss_counts": {
+      "cupti_dropped (CUPTI-reported-activity-records)": 1496664,
+      "cupti_pool_exhausted (buffer_requests)": 1496664
+    },
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 432961406,
+    "load_window_mb_per_s": 19.1
+  },
+  {
+    "run": "interference-s4",
+    "mode": "trace",
+    "api_capture_policy": "cupti-native-whitelist-v1",
+    "load_seconds": 22.712,
+    "capture_bytes": 321840608,
+    "segments": 40,
+    "segment_bytes_median": 9391723,
+    "records": 842864,
+    "records_by_type": {
+      "AdapterConfig": 1,
+      "ApiCall": 167940,
+      "ClockCalibration": 1,
+      "ClockProbe": 61,
+      "CudaEvent": 24743,
+      "ExtCorr": 126295,
+      "GpuActivity": 476687,
+      "Header": 40,
+      "Request": 23,
+      "RequestTokens": 48,
+      "Session": 1,
+      "Step": 4018,
+      "Sync": 43046
+    },
+    "api_calls_top": {
+      "cudaLaunchKernel_v7000": 53148,
+      "cuLaunchKernelEx": 32713,
+      "cudaEventRecordWithFlags_v11010": 24743,
+      "cuLaunchKernel": 20052,
+      "cudaMemcpyAsync_v3020": 17523,
+      "cudaStreamWaitEvent_v3020": 4017,
+      "cudaGraphLaunch_v10000": 4017,
+      "cudaEventSynchronize_v3020": 4009
+    },
+    "max_seq_by_producer": {
+      "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1508340:102647387": 842864
+    },
+    "bad_frames": 0,
+    "gpu_activities_by_kind": {
+      "kernel": {
+        "total": 456879,
+        "untimed": 63443
+      },
+      "memcpy": {
+        "total": 18650,
+        "untimed": 12824
+      },
+      "memset": {
+        "total": 1158,
+        "untimed": 420
+      }
+    },
+    "loss_counts": {},
+    "session_states": {
+      "Capturing": 1
+    },
+    "load_window_bytes": 204641687,
+    "load_window_mb_per_s": 9.0
+  }
+]

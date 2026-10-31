@@ -1,0 +1,14 @@
+/build*/
+/.venv/
+/.cache/
+/install/
+/packages/
+/bench-results/
+__pycache__/
+*.pyc
+*.egg-info/
+/reqscope-run-*/
+/reqscope-dump-*/
+
+# Raw captures stay on disk; results/*.json are committed.
+/results/raw/

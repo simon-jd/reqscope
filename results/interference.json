@@ -1,0 +1,48 @@
+{
+  "decode_slow_gaps": 465,
+  "slow_gaps_inside_a_long_prompt_window": 352,
+  "of_those_blamed_on_that_prompt": 288,
+  "blamed_on_a_long_prompt_outside_every_window": 0,
+  "excess_share": {
+    "long": 0.9289,
+    "other": 0.0023,
+    "unexplained": 0.0688
+  },
+  "top_culprits": [
+    "long-5",
+    "long-4",
+    "long-3",
+    "long-2",
+    "long-1",
+    "long-0"
+  ],
+  "top_culprits_are_the_long_prompts": true,
+  "typical_decode_gap_ms": 5.43,
+  "slow_gap_producer_gpu_busy_ms": {
+    "p50": 43.11,
+    "p90": 52.99
+  },
+  "clocks": [
+    {
+      "clock_error_ns": 280369,
+      "probe": {
+        "bracket_width_max_ns": 280369,
+        "bracket_width_p50_ns": 22848,
+        "max_violation_ns": 0,
+        "paired": 59,
+        "pending_at_capture_end": 1,
+        "probes": 60,
+        "unpaired": 0
+      },
+      "producer": "c29103ef-a3e1-4be8-bf6c-3cacf7ec13a9:1533537:102696864"
+    }
+  ],
+  "gpu_activities": 1689649,
+  "linked_gpu_activities": 1673051,
+  "loss_count": 0,
+  "loss_records": 1,
+  "untimed_gpu_activities": 0,
+  "capture_bytes": 902740327,
+  "capture_seconds": 22.798036449,
+  "blame_seconds": 28.9
+}

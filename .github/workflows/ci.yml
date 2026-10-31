@@ -1,0 +1,10 @@
+name: cpu-contracts
+on: [push, pull_request]
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DREQSCOPE_WITH_CUPTI=OFF -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build -j 2
+      - run: ctest --test-dir build --output-on-failure
