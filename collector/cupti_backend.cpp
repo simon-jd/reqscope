@@ -1,5 +1,6 @@
 #include "collector/backend.hpp"
 #include "collector/clock_probe.hpp"
+#include "collector/record_text.hpp"
 #include "collector/self_stats.hpp"
 #include <array>
 #include <atomic>
@@ -221,12 +222,6 @@ std::string result_name(CUptiResult result) {
     const char* name = nullptr;
     if (cuptiGetResultString(result, &name) != CUPTI_SUCCESS || !name) return std::to_string(int(result));
     return name;
-}
-Json gpu_record(const char* kind, uint32_t corr, uint32_t context, uint32_t stream,
-                uint64_t start, uint64_t end, uint64_t graph, uint64_t node, uint64_t bytes) {
-    return Json::object({{"type", "GpuActivity"}, {"kind", kind}, {"corr", uint64_t(corr)},
-        {"ctx", uint64_t(context)}, {"stream", uint64_t(stream)}, {"start", start}, {"end", end},
-        {"graph_id", graph}, {"graph_node_id", node}, {"bytes", bytes}});
 }
 #endif
 }
@@ -465,8 +460,18 @@ void backend_release(uint8_t* buffer) noexcept {
 #endif
 }
 void backend_process(uint8_t* buffer, size_t valid, uintptr_t context, uint32_t stream,
-                     const std::function<void(Json)>& emit) {
+                     const std::function<void(std::string&)>& emit) {
 #ifdef REQSCOPE_HAS_CUPTI
+    // One string, reused for every record of every buffer on the writer thread.
+    static thread_local std::string text;
+    auto gpu = [](const char* kind, uint32_t corr, uint32_t context, uint32_t stream, uint64_t start,
+                  uint64_t end, uint64_t graph, uint64_t node, uint64_t bytes) {
+        RecordText record(text, "GpuActivity");
+        record.text("kind", kind).number("corr", corr).number("ctx", context).number("stream", stream)
+            .number("start", start).number("end", end).number("graph_id", graph)
+            .number("graph_node_id", node).number("bytes", bytes);
+        return record;
+    };
     CUpti_Activity* activity = nullptr;
     for (;;) {
         const auto result = cuptiActivityGetNextRecord(buffer, valid, &activity);
@@ -477,76 +482,75 @@ void backend_process(uint8_t* buffer, size_t valid, uintptr_t context, uint32_t 
         case CUPTI_ACTIVITY_KIND_DRIVER:
         case CUPTI_ACTIVITY_KIND_RUNTIME: {
             const auto* api = reinterpret_cast<const CUpti_ActivityAPI*>(activity);
+            const bool driver = activity->kind == CUPTI_ACTIVITY_KIND_DRIVER;
             const char* name = nullptr;
-            cuptiGetCallbackName(activity->kind == CUPTI_ACTIVITY_KIND_DRIVER ? CUPTI_CB_DOMAIN_DRIVER_API : CUPTI_CB_DOMAIN_RUNTIME_API,
-                                 api->cbid, &name);
-            emit(Json::object({{"type", "ApiCall"}, {"corr", uint64_t(api->correlationId)},
-                {"cbid", uint64_t(api->cbid)}, {"tid", uint64_t(api->threadId)},
-                {"start", api->start}, {"end", api->end}, {"name", name ? name : "unknown"},
-                {"tid_domain", "system"},
-                {"domain", activity->kind == CUPTI_ACTIVITY_KIND_DRIVER ? "driver" : "runtime"},
-                {"return_value", uint64_t(api->returnValue)}}));
+            cuptiGetCallbackName(driver ? CUPTI_CB_DOMAIN_DRIVER_API : CUPTI_CB_DOMAIN_RUNTIME_API, api->cbid, &name);
+            RecordText(text, "ApiCall").number("corr", api->correlationId).number("cbid", api->cbid)
+                .number("tid", api->threadId).number("start", api->start).number("end", api->end)
+                .text("name", name ? name : "unknown").text("tid_domain", "system")
+                .text("domain", driver ? "driver" : "runtime").number("return_value", uint64_t(api->returnValue));
+            emit(text);
             break;
         }
         case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION: {
             const auto* external = reinterpret_cast<const CUpti_ActivityExternalCorrelation*>(activity);
-            if (external->externalKind == CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM0)
-                emit(Json::object({{"type", "ExtCorr"}, {"corr", uint64_t(external->correlationId)},
-                    {"step_id", external->externalId}}));
+            if (external->externalKind == CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM0) {
+                RecordText(text, "ExtCorr").number("corr", external->correlationId)
+                    .number("step_id", external->externalId);
+                emit(text);
+            }
             break;
         }
         case CUPTI_ACTIVITY_KIND_KERNEL:
         case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL: {
             const auto* kernel = reinterpret_cast<const CUpti_ActivityKernel11*>(activity);
-            auto record = gpu_record("kernel", kernel->correlationId, kernel->contextId, kernel->streamId,
-                                     kernel->start, kernel->end, kernel->graphId, kernel->graphNodeId, 0);
-            record["name"] = kernel->name ? kernel->name : "kernel";
-            record["device"] = uint64_t(kernel->deviceId);
-            record["is_device_launched"] = bool(kernel->isDeviceLaunched);
-            emit(std::move(record));
+            gpu("kernel", kernel->correlationId, kernel->contextId, kernel->streamId, kernel->start, kernel->end,
+                kernel->graphId, kernel->graphNodeId, 0)
+                .text("name", kernel->name ? kernel->name : "kernel").number("device", kernel->deviceId)
+                .boolean("is_device_launched", kernel->isDeviceLaunched);
+            emit(text);
             break;
         }
         case CUPTI_ACTIVITY_KIND_MEMCPY: {
             const auto* copy = reinterpret_cast<const CUpti_ActivityMemcpy6*>(activity);
             if (graph_mode && copy->graphId) break;
-            auto record = gpu_record("memcpy", copy->correlationId, copy->contextId, copy->streamId,
-                                     copy->start, copy->end, copy->graphId, copy->graphNodeId, copy->bytes);
-            record["copy_kind"] = uint64_t(copy->copyKind);
-            record["runtime_corr"] = uint64_t(copy->runtimeCorrelationId);
-            emit(std::move(record));
+            gpu("memcpy", copy->correlationId, copy->contextId, copy->streamId, copy->start, copy->end,
+                copy->graphId, copy->graphNodeId, copy->bytes)
+                .number("copy_kind", copy->copyKind).number("runtime_corr", copy->runtimeCorrelationId);
+            emit(text);
             break;
         }
         case CUPTI_ACTIVITY_KIND_MEMSET: {
             const auto* set = reinterpret_cast<const CUpti_ActivityMemset4*>(activity);
             if (graph_mode && set->graphId) break;
-            emit(gpu_record("memset", set->correlationId, set->contextId, set->streamId,
-                            set->start, set->end, set->graphId, set->graphNodeId, set->bytes));
+            gpu("memset", set->correlationId, set->contextId, set->streamId, set->start, set->end,
+                set->graphId, set->graphNodeId, set->bytes);
+            emit(text);
             break;
         }
         case CUPTI_ACTIVITY_KIND_SYNCHRONIZATION: {
             const auto* sync = reinterpret_cast<const CUpti_ActivitySynchronization2*>(activity);
-            emit(Json::object({{"type", "Sync"}, {"corr", uint64_t(sync->correlationId)},
-                {"sync_type", uint64_t(sync->type)}, {"ctx", uint64_t(sync->contextId)},
-                {"stream", uint64_t(sync->streamId)}, {"event", uint64_t(sync->cudaEventId)},
-                {"event_sync_id", sync->cudaEventSyncId}, {"start", sync->start}, {"end", sync->end},
-                {"return_value", uint64_t(sync->returnValue)}}));
+            RecordText(text, "Sync").number("corr", sync->correlationId).number("sync_type", uint64_t(sync->type))
+                .number("ctx", sync->contextId).number("stream", sync->streamId).number("event", sync->cudaEventId)
+                .number("event_sync_id", sync->cudaEventSyncId).number("start", sync->start).number("end", sync->end)
+                .number("return_value", uint64_t(sync->returnValue));
+            emit(text);
             break;
         }
         case CUPTI_ACTIVITY_KIND_CUDA_EVENT: {
             const auto* event = reinterpret_cast<const CUpti_ActivityCudaEvent2*>(activity);
-            emit(Json::object({{"type", "CudaEvent"}, {"corr", uint64_t(event->correlationId)},
-                {"ctx", uint64_t(event->contextId)}, {"stream", uint64_t(event->streamId)},
-                {"event", uint64_t(event->eventId)}, {"event_sync_id", event->cudaEventSyncId},
-                {"device_timestamp", event->deviceTimestamp}}));
+            RecordText(text, "CudaEvent").number("corr", event->correlationId).number("ctx", event->contextId)
+                .number("stream", event->streamId).number("event", event->eventId)
+                .number("event_sync_id", event->cudaEventSyncId).number("device_timestamp", event->deviceTimestamp);
+            emit(text);
             break;
         }
         case CUPTI_ACTIVITY_KIND_GRAPH_TRACE: {
             const auto* graph = reinterpret_cast<const CUpti_ActivityGraphTrace2*>(activity);
-            auto record=gpu_record("graph", graph->correlationId, graph->contextId, graph->streamId,
-                                   graph->start, graph->end, graph->graphId, 0, 0);
-            record["granularity"]="graph_envelope";
-            record["includes_internal_gaps"]=true;
-            emit(std::move(record));
+            gpu("graph", graph->correlationId, graph->contextId, graph->streamId, graph->start, graph->end,
+                graph->graphId, 0, 0)
+                .text("granularity", "graph_envelope").boolean("includes_internal_gaps", true);
+            emit(text);
             break;
         }
         default: break;

@@ -70,6 +70,7 @@ static uint64_t thread_cpu_ns() noexcept {
     return uint64_t(ts.tv_sec) * 1000000000ULL + uint64_t(ts.tv_nsec);
 }
 static SelfStats stats_storage;
+
 static thread_local bool engine_thread = false;
 SelfStats& self_stats() noexcept { return stats_storage; }
 bool on_engine_thread() noexcept { return engine_thread; }
@@ -122,7 +123,7 @@ public:
     std::mutex flush_mutex;
     std::condition_variable flush_condition;
     fs::path output;
-    std::string socket_path, producer, mode;
+    std::string socket_path, producer, mode, quoted_producer;
     Json header;
     BackendInfo backend;
     uint64_t sequence = 0, segment_number = 0, segment_bytes = 0;
@@ -158,6 +159,7 @@ public:
             {"clock", "CLOCK_MONOTONIC"},
             {"clock_calibrated", false}, {"mode", mode}, {"queue_slots", queue_capacity()},
             {"record_max_bytes", uint64_t(max_json_size)}, {"session_state", "Configured"}});
+        quoted_producer = Json(producer).dump();
         socket_path = env_string("REQSCOPE_SOCKET", "/tmp/reqscope-" + std::to_string(owner) + ".sock");
         setup_socket();
     }
@@ -281,6 +283,30 @@ public:
             enforce_retention();
         }
     }
+    // A CUPTI record, serialized by the backend and left open: append the
+    // fields every record carries and close it.
+    void emit_text(std::string& text) {
+        if (!writer) open_segment();
+        const auto now = monotonic_ns();
+        char tail[192];
+        const int length = std::snprintf(tail, sizeof tail, ",\"pid\":%llu,\"seq\":%llu,\"timestamp\":%llu,\"producer\":",
+            static_cast<unsigned long long>(owner), static_cast<unsigned long long>(++sequence),
+            static_cast<unsigned long long>(now));
+        text.append(tail, static_cast<size_t>(length));
+        text += quoted_producer;
+        text += '}';
+        {
+            Timed timed(Site::write_record);
+            segment_bytes += writer->write_text(text);
+        }
+        current.last_seq = sequence;
+        current.end = now;
+        if (segment_bytes >= target_segment_bytes || current.end - current.begin >= 1000000000ULL) {
+            Timed timed(Site::rotate_segment);
+            close_segment();
+            enforce_retention();
+        }
+    }
     // Rotation only writes: the page cache keeps a segment if the profiled
     // process dies, and a per-segment fdatasync on this thread (the only one
     // draining CUPTI buffers) was what let the CUPTI buffer pool run dry.
@@ -373,7 +399,7 @@ public:
                 Timed timed(Site::process_buffer);
                 self_stats().cupti_bytes.fetch_add(pending.length, std::memory_order_relaxed);
                 try { backend_process(pending.buffer, pending.length, pending.context, pending.stream,
-                                      [this](Json value) { emit(std::move(value)); }); }
+                                      [this](std::string& text) { emit_text(text); }); }
                 catch (...) { backend_release(pending.buffer); throw; }
                 backend_release(pending.buffer);
             } else if (pending.kind == Pending::graph_resource) {

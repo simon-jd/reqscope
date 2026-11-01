@@ -101,8 +101,8 @@ SegmentWriter::~SegmentWriter() {
     ::close(fd_);
   }
 }
-size_t SegmentWriter::write(const Json &r) {
-  const auto s = r.dump();
+size_t SegmentWriter::write(const Json &r) { return write_text(r.dump()); }
+size_t SegmentWriter::write_text(std::string_view s) {
   if (s.size() > max_record_bytes)
     throw std::runtime_error("record exceeds 1 MiB");
   char frame[8];

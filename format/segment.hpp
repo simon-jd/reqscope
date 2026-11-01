@@ -22,6 +22,8 @@ public:
   // size. The buffer goes to the file in one write once it reaches 1 MiB,
   // and on drain() or flush(), so a record costs no syscall of its own.
   size_t write(const Json &record);
+  // The same for a record already serialized as one JSON object.
+  size_t write_text(std::string_view record);
   // Writes the buffer to the file.
   void drain();
   // drain(), then fdatasync.

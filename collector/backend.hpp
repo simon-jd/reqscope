@@ -36,7 +36,9 @@ void backend_flush() noexcept;
 void backend_stop() noexcept;
 int backend_push(uint64_t step) noexcept;
 int backend_pop() noexcept;
+// Parses one CUPTI buffer; emit gets each record as JSON text without its
+// closing brace (record_text.hpp).
 void backend_process(uint8_t* buffer, size_t valid, uintptr_t context,
-                     uint32_t stream, const std::function<void(Json)>& emit);
+                     uint32_t stream, const std::function<void(std::string&)>& emit);
 void backend_release(uint8_t* buffer) noexcept;
 }
