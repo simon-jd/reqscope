@@ -3,6 +3,7 @@
     python bench/interference.py interference --mode trace --out results/raw/interference
     python bench/interference.py overhead --mode off|plugin|light|trace --out results/raw/overhead-off
     python bench/interference.py openloop --mode off|plugin|light|trace --rates 8,16,24 --out results/raw/openloop-off-r1
+    python bench/interference.py multicause --mode trace|plugin --seed 1 --out results/raw/multicause-trace-s1
 
 interference
     16 decode streams generate 4,000 tokens each. Starting 2 s in, a
@@ -18,6 +19,17 @@ overhead
 openloop
     Poisson arrivals of the same requests at each rate in --rates (requests
     per second), --seconds of arrivals per rate, on one server.
+
+multicause
+    16 decode streams generate --decode-tokens tokens each while the client
+    injects causes of slow steps at random times drawn from --seed, three of
+    each kind by default:
+      interference  a 6,000-token prompt whose prefill shares steps with the decodes
+      gpu_slowdown  a separate CUDA process (--python) runs fp16 matmuls for --burst-ms
+      host_delay    the EngineCore process is stopped (SIGSTOP) for --stall-ms
+    Each event's cause and actual [start, end] go into client.json, which
+    the analyzer never reads; bench/score_causes.py compares them with
+    blame's per-step causes.
 
 Collector modes:
     off     no plugin, no collector
@@ -218,6 +230,100 @@ async def openloop(args) -> list[dict]:
     return blocks
 
 
+BURNER = r"""
+import sys, time, torch
+x = torch.randn(8192, 8192, device="cuda", dtype=torch.float16)
+for _ in range(3):
+    y = x @ x
+torch.cuda.synchronize()
+print("ready", flush=True)
+for line in sys.stdin:
+    start = time.monotonic_ns()
+    stop = start + int(float(line) * 1e6)
+    while time.monotonic_ns() < stop:
+        y = x @ x
+        torch.cuda.synchronize()
+    print(start, time.monotonic_ns(), flush=True)
+"""
+
+
+def engine_core(server_pid: int) -> int:
+    """The pid of the server's EngineCore process."""
+    children: dict[int, list[int]] = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            with contextlib.suppress(OSError):
+                with open(f"/proc/{entry}/stat") as stat:
+                    children.setdefault(int(stat.read().rsplit(")", 1)[1].split()[1]), []).append(int(entry))
+    stack = [server_pid]
+    while stack:
+        pid = stack.pop()
+        with contextlib.suppress(OSError):
+            if Path(f"/proc/{pid}/comm").read_text().startswith("VLLM::EngineCor"):
+                return pid
+        stack += children.get(pid, [])
+    raise RuntimeError("no EngineCore process under the server")
+
+
+def schedule(args) -> list[tuple[float, str]]:
+    """Event start times (seconds after the decodes start) and causes, from --seed."""
+    rng = random.Random(f"multicause-{args.seed}")
+    causes = [c for c in args.causes for _ in range(args.events_per_cause)]
+    rng.shuffle(causes)
+    events, at = [], 2.0
+    for cause in causes:
+        events.append((at, cause))
+        at += rng.uniform(1.5, 3.0)
+    return events
+
+
+async def multicause(args) -> dict:
+    import aiohttp
+    rng = random.Random(args.seed)
+    burner = subprocess.Popen([str(args.python), "-c", BURNER], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              text=True, env={**os.environ, "CUDA_VISIBLE_DEVICES": args.device})
+    engine = engine_core(args.server_pid)
+    events, tasks = [], []
+    try:
+        if burner.stdout.readline().strip() != "ready":
+            raise RuntimeError("GPU burner did not start")
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=900)) as session:
+            decodes = [asyncio.create_task(stream(session, args.port, f"decode-{i}", tokens(rng, 128),
+                                                  args.decode_tokens)) for i in range(16)]
+            origin = time.monotonic()
+            for j, (at, cause) in enumerate(schedule(args)):
+                await asyncio.sleep(max(0.0, origin + at - time.monotonic()))
+                if cause == "interference":
+                    tasks.append(asyncio.create_task(
+                        stream(session, args.port, f"long-{j}", tokens(rng, 6000), 1)))
+                    events.append({"cause": cause, "request": f"long-{j}"})
+                elif cause == "gpu_slowdown":
+                    burner.stdin.write(f"{args.burst_ms}\n")
+                    burner.stdin.flush()
+                    events.append({"cause": cause})
+                else:
+                    start = time.monotonic_ns()
+                    os.kill(engine, signal.SIGSTOP)
+                    try:
+                        await asyncio.sleep(args.stall_ms / 1000)
+                    finally:
+                        os.kill(engine, signal.SIGCONT)
+                    events.append({"cause": cause, "start_ns": start, "end_ns": time.monotonic_ns()})
+            longs = {r["id"]: r for r in await asyncio.gather(*tasks)}
+            results = list(await asyncio.gather(*decodes)) + list(longs.values())
+    finally:
+        burner.stdin.close()
+        bursts = [list(map(int, line.split())) for line in burner.stdout]
+        burner.wait(timeout=60)
+    for event in events:
+        if event["cause"] == "interference":
+            result = longs[event["request"]]
+            event.update(start_ns=result["sent_ns"], end_ns=result["chunk_ns"][0])
+        elif event["cause"] == "gpu_slowdown":
+            event["start_ns"], event["end_ns"] = bursts.pop(0)
+    return {"seed": args.seed, "events": events, "streams": results}
+
+
 async def stream_warmup(port: int) -> None:
     import aiohttp
     async with aiohttp.ClientSession() as session:
@@ -258,7 +364,7 @@ def gpu_lock(path: Path | None):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("experiment", choices=["interference", "overhead", "openloop"])
+    parser.add_argument("experiment", choices=["interference", "overhead", "openloop", "multicause"])
     parser.add_argument("--mode", choices=["off", "plugin", "light", "trace"], default="trace")
     parser.add_argument("--out", type=Path, required=True, help="new run directory")
     parser.add_argument("--seed", type=int, default=1)
@@ -266,6 +372,11 @@ def parse_args(argv=None):
                         help="load duration: 60 for overhead, 45 per rate for openloop")
     parser.add_argument("--rates", default="8,16,24", help="openloop request rates per second")
     parser.add_argument("--round", type=int, default=1, help="label recorded in client.json")
+    parser.add_argument("--causes", default="interference,gpu_slowdown,host_delay", help="multicause causes")
+    parser.add_argument("--events-per-cause", type=int, default=3)
+    parser.add_argument("--burst-ms", type=float, default=300.0, help="multicause GPU burst length")
+    parser.add_argument("--stall-ms", type=float, default=200.0, help="multicause EngineCore stop length")
+    parser.add_argument("--decode-tokens", type=int, default=6000, help="multicause tokens per decode")
     parser.add_argument("--model", default=os.environ.get("REQSCOPE_BENCH_MODEL", MODEL),
                         help="Hugging Face model id, or a local model directory (e.g. a cached snapshot)")
     parser.add_argument("--revision", default=os.environ.get("REQSCOPE_BENCH_REVISION", REVISION),
@@ -286,6 +397,9 @@ def parse_args(argv=None):
     parser.add_argument("--ring-bytes", type=int, default=8 << 30, help="collector ring size on disk")
     args = parser.parse_args(argv)
     args.rates = [float(r) for r in args.rates.split(",")]
+    args.causes = args.causes.split(",")
+    if set(args.causes) - {"interference", "gpu_slowdown", "host_delay"}:
+        parser.error("--causes takes interference, gpu_slowdown and host_delay")
     if args.seconds is None:
         args.seconds = 45.0 if args.experiment == "openloop" else 60.0
     if not 0 < args.gpu_memory_utilization <= 0.95:
@@ -296,12 +410,14 @@ def parse_args(argv=None):
 def main() -> None:
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
-    run = {"interference": interference, "overhead": overhead, "openloop": openloop}[args.experiment]
+    run = {"interference": interference, "overhead": overhead, "openloop": openloop,
+           "multicause": multicause}[args.experiment]
     load: list = []
     with gpu_lock(args.lock), load_samples(load):
         process = server(args, args.out)
         try:
             wait_ready(process, args.port)
+            args.server_pid = process.pid
             asyncio.run(stream_warmup(args.port))
             started = time.monotonic_ns()
             results = asyncio.run(run(args))
