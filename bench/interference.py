@@ -105,6 +105,7 @@ def server(args, out: Path) -> subprocess.Popen:
         else:
             env.update({"CUDA_INJECTION64_PATH": str(library), "REQSCOPE_MODE": args.mode,
                         "REQSCOPE_CUPTI_BUFFERS": "256"})
+        env.update(args.collector_env)
     # A local model directory is used as is; a Hub id is pinned to --revision.
     pinned = [] if Path(args.model).is_dir() else ["--revision", args.revision, "--tokenizer-revision", args.revision]
     command = [str(args.python), "-B", "-m", "vllm.entrypoints.cli.main", "serve", args.model, *pinned,
@@ -441,7 +442,12 @@ def parse_args(argv=None):
     parser.add_argument("--device", default="0", help="CUDA_VISIBLE_DEVICES for the server")
     parser.add_argument("--port", type=int, default=8123)
     parser.add_argument("--ring-bytes", type=int, default=8 << 30, help="collector ring size on disk")
+    parser.add_argument("--collector-env", action="append", default=[], metavar="KEY=VALUE",
+                        help="extra REQSCOPE_* setting for the collector (repeatable; recorded in client.json)")
     args = parser.parse_args(argv)
+    if any(not item.startswith("REQSCOPE_") or "=" not in item for item in args.collector_env):
+        parser.error("--collector-env takes REQSCOPE_KEY=VALUE")
+    args.collector_env = dict(item.split("=", 1) for item in args.collector_env)
     args.rates = [float(r) for r in args.rates.split(",")]
     args.causes = args.causes.split(",")
     if set(args.causes) - {"interference", "gpu_slowdown", "host_delay"}:
@@ -483,6 +489,7 @@ def main() -> None:
         "experiment": args.experiment, "mode": args.mode, "seed": args.seed, "round": args.round,
         "model": args.model, "revision": args.revision, "gpu_memory_utilization": args.gpu_memory_utilization,
         "started_ns": started, "ended_ns": ended, "loadavg": load, "threads": threads,
+        "collector_env": args.collector_env,
         "results": results}))
     print(args.out)
 
