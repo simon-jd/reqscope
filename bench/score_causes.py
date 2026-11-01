@@ -16,7 +16,8 @@ Per run and summed per collector mode:
   all steps given that cause, and over the steps inside some event window
   (excluding the run's own slow steps);
 - per cause: the share of injected events with at least one step given the
-  right cause.
+  right cause;
+- per run, the host's mean 1-minute load average during the run.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from score import reqscope  # noqa: E402
+from score import mean_load, reqscope  # noqa: E402
 
 CAUSES = ["interference", "gpu_slowdown", "host_delay"]
 PREDICTED = CAUSES + ["unexplained", "undetermined"]
@@ -92,6 +93,7 @@ def score(run: Path) -> tuple[dict, Counter, Counter, Counter]:
     for cause, found in hits.items():
         detected[cause] = len(found)
     result = {"run": run.name, "mode": client["mode"], "seed": client["results"]["seed"],
+              "load1_mean": mean_load(client.get("loadavg", []), client["started_ns"], client["ended_ns"]),
               "slow_steps": sum(confusion.values()), "trace_status": blame.get("trace", {}).get("status"),
               **metrics(confusion, detected, injected)}
     return result, confusion, detected, injected

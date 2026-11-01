@@ -15,6 +15,7 @@ here are derived from them.
 | `environment.json` | the host | `bench/environment.py`: Python, vLLM, torch, CUDA toolkit, CUPTI, driver, GPU, kernel, CPU |
 | `ablation.json` | `interference-s5`, then `ablation-trace` and `ablation-plugin` (pair 1) and `ablation-trace-2` and `ablation-plugin-2` (pair 2) | `bench/compare_runs.py --load`, after `bench/score.py interference` on each |
 | `openloop.json` | `openloop-{off,plugin,light,trace}-r1` to `-r5` | `bench/score.py openloop --load` |
+| `multicause.json` | `multicause-trace-s1` to `-s3` and `multicause-plugin-s1` to `-s3` | `bench/score_causes.py`, which runs `reqscope blame` on each capture and compares it with the injected events in `client.json` |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
 
 Notes:
@@ -46,5 +47,9 @@ Notes:
 - The plugin-only captures predate the fix that leaves `clock_error_ns`
   absent in plugin mode, so their headers still claim 0. They have no GPU
   records, and `ablation.json` reports no clock values.
+- The multi-cause runs used commit 60fca57, `--gpu-memory-utilization 0.6`
+  and the GPU lock for each run (the GPU burner ran inside that hold). The
+  cause rules were fixed on `multicause-pilot-trace` (seed 100), which is
+  not scored. Each run's `client.json` has its host load samples.
 - Overhead rounds 2 and 3 kept only client timings, so the write rates in
   `captures.json` come from round 1.

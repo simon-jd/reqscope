@@ -203,7 +203,9 @@ are applied in order; "excess" is the gap minus the request's median gap.
      start until the step's first launch returned.
 4. **gpu_slowdown** if GPU extra is at least host extra and at least half
    the excess; **host_delay** if host extra is larger and at least half the
-   excess; **unexplained** otherwise.
+   excess; **unexplained** otherwise. The GPU terms can overlap (a slower
+   previous step also lengthens this step's launch wait), so GPU extra can
+   exceed the excess; the components are compared, not added up to the gap.
 
 The rules do not separate a host-device synchronization stall from other
 host delay: both appear as host time around the step's GPU work. A long

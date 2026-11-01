@@ -1,48 +1,49 @@
 # reqscope: why was this vLLM request slow?
 
-When a request's tokens slow down in a batched LLM server, the cause is
-usually something that shared its engine steps: another request's prefill,
-a host-side stall, or the step's own GPU work. Serving metrics show that
-inter-token latency rose; GPU profilers show kernels, but not which requests
-a step served. reqscope records both sides of vLLM on one clock and answers,
-for each slow token: which engine step produced it, what else ran in that
-step, how long the GPU was busy, and whose work caused the excess.
+When a request's tokens slow down in a batched LLM server, the cause can be
+another request's prefill sharing the engine step, the GPU running slower or
+running someone else's work, or the host failing to keep the GPU fed.
+Serving metrics show that inter-token latency rose; GPU profilers show
+kernels, but not which requests a step served. reqscope records both sides
+of vLLM on one clock and answers, for each slow token: which engine step
+produced it, what else ran in that step, how its time split between GPU and
+host, and what caused the excess.
 
 **How it works.** A vLLM 0.31.0 plugin records every engine step, the
 requests it scheduled and their phase, and each token's time and producing
 step. A CUPTI injection library (C++20, loaded with `CUDA_INJECTION64_PATH`,
 no change to vLLM or PyTorch) tags every kernel and copy with the step that
 launched it, on a clock with a measured error bound; it is optional.
-`reqscope blame` joins the records by ids and splits each slow gap's excess
-over the prefill work co-scheduled in the step that produced the token.
+`reqscope blame` joins the records by ids, names each slow step's cause
+(interference, GPU slowdown or host delay) from step membership and GPU
+evidence, and splits interference excess over the co-scheduled prefill.
 
 **Results** (Qwen2.5-1.5B-Instruct on one RTX 4090, vLLM 0.31.0, chunked
 prefill, async scheduling):
-- **It finds culprits it never saw.** Six 6,000-token prompts interrupt 16
-  decodes. Blame's top six culprits are exactly those prompts; per slow
-  engine step, precision is 1.00 and recall 0.82 against the client's ground
-  truth, and the 11 of 30 slow steps with no co-scheduled prefill are left
-  unexplained, not guessed.
-- **The verdict does not need GPU tracing; the evidence does.** With CUPTI
-  off, blame names the same 18 prefill steps (precision 1.00 in every run),
-  because the verdict comes from step membership. CUPTI adds the why: those
-  steps were 49–50 ms of GPU work, while the unexplained ones were ordinary
-  6 ms decode steps in 9–10 ms gaps, so their delay was on the host.
+- **It tells causes apart, blind.** During steady decoding, a seeded
+  schedule the analyzer never sees injects 6,000-token prompts, 300 ms
+  bursts of matrix multiplies from a separate CUDA process, and 200 ms stops
+  of the engine process. Over 3 seeds and 27 events, trace-mode blame named
+  the right cause for every event. Per slow step, recall is 0.84 / 0.99 /
+  1.00 for interference / GPU slowdown / host delay, and precision inside
+  the injection windows 1.00 / 1.00 / 0.60.
+- **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
+  long prompts but calls every GPU burst and engine stop "undetermined" (0
+  of 18). In a single-cause experiment membership alone is enough: six long
+  prompts against 16 decodes are found with per-step precision 1.00 and
+  recall 0.82, with or without CUPTI.
 - **Recording steps is free; tracing every kernel is not.** Under open-loop
   load at 8–24 requests/s, the plugin alone and the light collector stay
   within 1% of no collector on TPOT p50 and p99. Per-kernel trace mode adds
   2–3% at 8 requests/s, 18% (p50) and 27% (p99) at 16, and at 24 the
-  server falls behind (median TTFT 26 to 314 ms). Tracing also created
-  slow decode steps of its own in the experiment (71 and 129, against 27 and
-  33 with CUPTI off).
+  server falls behind (median TTFT 26 to 314 ms). Tracing also adds slow
+  steps of its own: 415 outside the injection windows across the three
+  trace runs, against 39 with CUPTI off.
 
-Limits: one model on one GPU at TP = 1, one validated cause (prefill
-interference), vLLM 0.31.0 and CUDA 13.2 only, and a shared host whose load
-varied between runs; see [Limitations](#limitations).
-
-![Slow engine steps over the run: the steps blamed on a long prompt sit in
-its prefill window; the unexplained ones are 8-15 ms decode
-steps](docs/slow-steps.svg)
+Limits: one model on one GPU at TP = 1, injected causes rather than
+production incidents, synchronization stalls not separated from host delay,
+vLLM 0.31.0 and CUDA 13.2 only, and a shared host whose load varied between
+runs; see [Limitations](#limitations).
 
 - **vLLM plugin** (`adapter/vllm`): wraps the V2 model runner and the
   scheduler to emit steps, step membership and request lifecycles.
@@ -51,12 +52,84 @@ steps](docs/slow-steps.svg)
 - **Analyzer and CLI** (`analyzer/`, `cli/`): `blame`, `explain`, `analyze`,
   `diff`, `export-perfetto`, `dump`.
 
+## The multi-cause benchmark
+
+`bench/interference.py multicause`: 16 requests decode 6,000 tokens each.
+From 2 s on, an event starts every 1.5–3 s, nine in all, three of each
+cause in an order drawn from the seed:
+- **interference**: a 6,000-token prompt, whose window runs from sending it
+  to its first token;
+- **GPU slowdown**: a separate CUDA process, started by the benchmark while
+  it holds the GPU lock, runs fp16 8192 × 8192 matrix multiplies for 300 ms;
+- **host delay**: the EngineCore process is stopped with SIGSTOP for 200 ms.
+
+The benchmark writes each event's actual window to `client.json`, which
+`blame` never reads. `bench/score_causes.py` groups each run's slow decode
+gaps by producing step (the decodes run in lockstep) and labels each step
+with the event window it overlaps most, extended by 20 ms, or with "no
+injected cause". Three seeds ran with trace mode and three with the plugin
+alone. The cause rules ([docs/design.md](docs/design.md), "Causes") were
+fixed on a pilot run with another seed before these runs. Other projects'
+jobs kept the host's load average at 6.5–10.9 during them (per run in
+[results/multicause.json](results/multicause.json)).
+
+| Injected cause | Trace: events found | Trace: step recall | Trace: step precision inside windows | Plugin only: events found | Plugin only: step recall |
+|---|---|---|---|---|---|
+| interference | 9 of 9 | 0.84 (27 of 32) | 1.00 | 9 of 9 | 0.93 (27 of 29) |
+| GPU slowdown | 9 of 9 | 0.99 (215 of 216) | 1.00 | 0 of 9 | 0 (all 220 undetermined) |
+| host delay | 9 of 9 | 1.00 (9 of 9) | 0.60 | 0 of 9 | 0 (all 9 undetermined) |
+
+Slow steps by true cause (rows) and blame's cause (columns), summed over
+the three seeds ([results/multicause.json](results/multicause.json)):
+
+| Trace mode | interference | GPU slowdown | host delay | unexplained | undetermined |
+|---|---|---|---|---|---|
+| interference | 27 | 0 | 5 | 0 | 0 |
+| GPU slowdown | 0 | 215 | 1 | 0 | 0 |
+| host delay | 0 | 0 | 9 | 0 | 0 |
+| no injected cause | 3 | 0 | 412 | 0 | 0 |
+
+| Plugin only | interference | GPU slowdown | host delay | unexplained | undetermined |
+|---|---|---|---|---|---|
+| interference | 27 | 0 | 0 | 0 | 2 |
+| GPU slowdown | 0 | 0 | 0 | 0 | 220 |
+| host delay | 0 | 0 | 0 | 0 | 9 |
+| no injected cause | 3 | 0 | 0 | 0 | 36 |
+
+The evidence behind the verdicts (medians over the trace runs' slow steps):
+during a GPU burst, a decode step's GPU busy time doubles (10.4 ms against
+5.1 ms in nearby decode steps) and its first kernel starts 8.7 ms after its
+launch returns instead of 4.1 ms. During an engine stop the producing step's
+GPU work is normal (5.6 ms) and the gap holds 198 ms of host time after it.
+
+What does not work:
+- **Steps near a long prompt that are not its prefill.** 5 of the 32 slow
+  steps inside long-prompt windows had no co-scheduled prefill and were
+  called host delay (3.6–12 ms of extra host time), probably the engine
+  taking in the 6,000-token request before scheduling its chunks. The
+  window-based truth counts them as interference misses, and they are most
+  of why host-delay precision inside the windows is 0.60.
+- **Tracing's own slow steps.** Outside the windows the trace runs have 415
+  slow steps against 39 with CUPTI off under similar host load, and blame
+  calls 412 of them host delay. That matches what tracing costs (see "With CUPTI off" below), but
+  nothing here injects them, so against the injected truth host-delay
+  precision over all steps is 0.02.
+- **The 3 "no injected cause" steps called interference** are each run's
+  first slow step, when the 16 decodes' own prompts are prefilled together:
+  real interference, but not injected.
+- **Synchronization stalls** are not a separate cause: the rules count a
+  host-device sync as host time, and the benchmark does not inject one.
+
 ## The interference experiment
 
 16 requests decode continuously, each to 4,000 tokens. Six 6,000-token
 prompts arrive, one every 3 s, and their prefill chunks share engine steps
 with the decodes. The client records when each long prompt was in prefill
 (sent until first token). The analyzer never sees that ground truth.
+
+![Slow engine steps over the run: the steps blamed on a long prompt sit in
+its prefill window; the unexplained ones are 8-15 ms decode
+steps](docs/slow-steps.svg)
 
 | What `reqscope blame` reported | |
 |---|---|
@@ -184,9 +257,14 @@ GpuActivity --corr--> ApiCall --corr--> ExtCorr(step_id) --> Step --members--> R
      GPU time (none with CUPTI off);
    - its co-scheduled members, with phase and tokens.
 4. **Assign the excess.** It is split over the prefill tokens co-scheduled
-   in that step. With no co-scheduled prefill, the gap is reported as
-   unexplained, never guessed.
-5. **Rank culprits** by the total excess they caused.
+   in that step. With no co-scheduled prefill, no request is blamed.
+5. **Name the cause:** interference when the step had co-scheduled prefill;
+   otherwise GPU slowdown or host delay, whichever of the step's extra GPU
+   time and extra host time explains at least half the excess, against
+   nearby comparable steps; "unexplained" when neither does, and
+   "undetermined" without GPU records
+   ([docs/design.md](docs/design.md), "Causes").
+6. **Rank culprits** by the total excess they caused.
 
 ```sh
 reqscope blame RUN [--request ID]       # slow gaps, their steps, and the culprits
@@ -290,6 +368,13 @@ ctest --test-dir build --output-on-failure        # C++ and Python tests, CPU on
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r bench/requirements.txt && pip install -e adapter/vllm
 
+# Blind multi-cause benchmark: three seeds with trace mode and with the plugin
+# alone; each run holds the GPU lock and starts its own GPU burner
+for s in 1 2 3; do for m in trace plugin; do
+  python bench/interference.py multicause --mode $m --seed $s --out results/raw/multicause-$m-s$s
+done; done
+python bench/score_causes.py results/raw/multicause-*-s?
+
 # Interference experiment: one vLLM server, a few minutes on the GPU.
 # The model is Qwen/Qwen2.5-1.5B-Instruct at a pinned revision.
 python bench/interference.py interference --mode trace --out results/raw/interference
@@ -364,18 +449,26 @@ The tests run on CPU. They cover:
 - **Attribution is linear.** `blame` splits a gap's excess over co-scheduled
   prefill tokens. It does not model attention cost growing with context
   length.
-- **One experiment shape.** Prefill interference is validated end to end
-  against ground truth, on one model and one GPU at TP = 1. Other causes
-  are not: a co-running GPU job, or preemption and recompute.
+- **Injected causes, one model, one GPU.** Prefill interference, a
+  co-running CUDA process and a stopped engine are validated against ground
+  truth, on one model and one GPU at TP = 1. A real CPU contention, a GPU
+  clock drop, preemption and recompute, or two causes in one step are not.
+  Each slow step gets one cause.
+- **Host delay is one class.** A host-device synchronization stall, a
+  garbage-collection pause and CPU contention all look like host time
+  around the step's GPU work; `blame` does not tell them apart, and the
+  BPF probe that could was not used.
 - **Trace mode perturbs what it measures.** It added slow decode steps of
   its own in the interference runs, by an amount that varied between runs
-  (30, 71 and 129 slow steps against 27 and 33 with CUPTI off), and it
-  slows a loaded server (open-loop table). Its per-kernel evidence is for
-  short captures at moderate load.
+  (30, 71 and 129 slow steps against 27 and 33 with CUPTI off), 415 against
+  39 outside the injection windows of the multi-cause runs, and it slows a
+  loaded server (open-loop table). Its per-kernel evidence is for short
+  captures at moderate load.
 - **A shared host.** The runs shared the machine with other projects' jobs.
   Every run held the GPU lock those jobs share, but host load varied
-  (1-minute load average 1.1–4.7 in the open-loop runs, about 9–10 in the
-  first CUPTI-off pair), and host load changes host-side timings.
+  (1-minute load average 1.1–4.7 in the open-loop runs, 6.5–10.9 in the
+  multi-cause runs, about 9–10 in the first CUPTI-off pair), and host load
+  changes host-side timings.
 - **The BPF scheduler probe** (`bpf/`) needs CAP_BPF and was not used here,
   so host-side CPU stalls are reported as `between_steps`, without
   run-queue evidence.

@@ -1,0 +1,518 @@
+{
+  "by_mode": {
+    "trace": {
+      "seeds": [
+        1,
+        2,
+        3
+      ],
+      "slow_steps": 672,
+      "per_cause": {
+        "interference": {
+          "true_steps": 32,
+          "recall": 0.844,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 9,
+          "events_detected": 9
+        },
+        "gpu_slowdown": {
+          "true_steps": 216,
+          "recall": 0.995,
+          "precision": 1.0,
+          "precision_inside_windows": 1.0,
+          "events": 9,
+          "events_detected": 9
+        },
+        "host_delay": {
+          "true_steps": 9,
+          "recall": 1.0,
+          "precision": 0.021,
+          "precision_inside_windows": 0.6,
+          "events": 9,
+          "events_detected": 9
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 27,
+          "gpu_slowdown": 0,
+          "host_delay": 5,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 215,
+          "host_delay": 1,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 9,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 3,
+          "gpu_slowdown": 0,
+          "host_delay": 412,
+          "unexplained": 0,
+          "undetermined": 0
+        }
+      }
+    },
+    "plugin": {
+      "seeds": [
+        1,
+        2,
+        3
+      ],
+      "slow_steps": 297,
+      "per_cause": {
+        "interference": {
+          "true_steps": 29,
+          "recall": 0.931,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 9,
+          "events_detected": 9
+        },
+        "gpu_slowdown": {
+          "true_steps": 220,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 9,
+          "events_detected": 0
+        },
+        "host_delay": {
+          "true_steps": 9,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 9,
+          "events_detected": 0
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 27,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 2
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 220
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 9
+        },
+        "none": {
+          "interference": 3,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 36
+        }
+      }
+    }
+  },
+  "runs": [
+    {
+      "run": "multicause-trace-s1",
+      "mode": "trace",
+      "seed": 1,
+      "load1_mean": 7.11,
+      "slow_steps": 247,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 10,
+          "recall": 0.9,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 70,
+          "recall": 1.0,
+          "precision": 1.0,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "host_delay": {
+          "true_steps": 3,
+          "recall": 1.0,
+          "precision": 0.018,
+          "precision_inside_windows": 0.75,
+          "events": 3,
+          "events_detected": 3
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 1,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 70,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 3,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 163,
+          "unexplained": 0,
+          "undetermined": 0
+        }
+      }
+    },
+    {
+      "run": "multicause-trace-s2",
+      "mode": "trace",
+      "seed": 2,
+      "load1_mean": 10.91,
+      "slow_steps": 236,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 11,
+          "recall": 0.818,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 74,
+          "recall": 0.986,
+          "precision": 1.0,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "host_delay": {
+          "true_steps": 3,
+          "recall": 1.0,
+          "precision": 0.02,
+          "precision_inside_windows": 0.5,
+          "events": 3,
+          "events_detected": 3
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 2,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 73,
+          "host_delay": 1,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 3,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 147,
+          "unexplained": 0,
+          "undetermined": 0
+        }
+      }
+    },
+    {
+      "run": "multicause-trace-s3",
+      "mode": "trace",
+      "seed": 3,
+      "load1_mean": 6.5,
+      "slow_steps": 189,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 11,
+          "recall": 0.818,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 72,
+          "recall": 1.0,
+          "precision": 1.0,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "host_delay": {
+          "true_steps": 3,
+          "recall": 1.0,
+          "precision": 0.028,
+          "precision_inside_windows": 0.6,
+          "events": 3,
+          "events_detected": 3
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 2,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 72,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 3,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 102,
+          "unexplained": 0,
+          "undetermined": 0
+        }
+      }
+    },
+    {
+      "run": "multicause-plugin-s1",
+      "mode": "plugin",
+      "seed": 1,
+      "load1_mean": 7.69,
+      "slow_steps": 98,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 10,
+          "recall": 0.9,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 75,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 3,
+          "events_detected": 0
+        },
+        "host_delay": {
+          "true_steps": 3,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 3,
+          "events_detected": 0
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 1
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 75
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 3
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 9
+        }
+      }
+    },
+    {
+      "run": "multicause-plugin-s2",
+      "mode": "plugin",
+      "seed": 2,
+      "load1_mean": 6.77,
+      "slow_steps": 106,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 10,
+          "recall": 0.9,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 74,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 3,
+          "events_detected": 0
+        },
+        "host_delay": {
+          "true_steps": 3,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 3,
+          "events_detected": 0
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 1
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 74
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 3
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 18
+        }
+      }
+    },
+    {
+      "run": "multicause-plugin-s3",
+      "mode": "plugin",
+      "seed": 3,
+      "load1_mean": 6.81,
+      "slow_steps": 93,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 9,
+          "recall": 1.0,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 71,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 3,
+          "events_detected": 0
+        },
+        "host_delay": {
+          "true_steps": 3,
+          "recall": 0.0,
+          "precision": null,
+          "precision_inside_windows": null,
+          "events": 3,
+          "events_detected": 0
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 71
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 3
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 9
+        }
+      }
+    }
+  ]
+}
