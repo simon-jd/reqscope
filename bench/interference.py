@@ -43,6 +43,11 @@ The server is vLLM 0.31.0 from the Python environment given by --python
 README). Every path has a flag; nothing is machine-specific. With --lock,
 the run holds that file's flock for the whole run, from server start to
 shutdown.
+
+Every run also samples the EngineCore process's threads from /proc every
+0.5 s while the load runs (client.json "threads"): per thread its CPU time,
+time spent waiting for a CPU (schedstat run delay), the CPU it last ran on
+and its involuntary context switches. bench/thread_stats.py summarizes them.
 """
 from __future__ import annotations
 
@@ -352,6 +357,47 @@ def load_samples(samples: list, every: float = 5.0):
         worker.join()
 
 
+def task_sample(pid: int) -> dict[str, list]:
+    """Per thread of pid: [exec ns, run-queue delay ns, last CPU, involuntary switches, name]."""
+    rows = {}
+    for tid in os.listdir(f"/proc/{pid}/task"):
+        base = f"/proc/{pid}/task/{tid}"
+        with contextlib.suppress(OSError, ValueError, IndexError):
+            exec_ns, delay_ns = map(int, Path(base + "/schedstat").read_text().split()[:2])
+            stat = Path(base + "/stat").read_text()
+            name, fields = stat[stat.index("(") + 1:stat.rindex(")")], stat[stat.rindex(")") + 2:].split()
+            status = Path(base + "/status").read_text()
+            switches = int(status.split("nonvoluntary_ctxt_switches:")[1].split()[0])
+            rows[tid] = [exec_ns, delay_ns, int(fields[36]), switches, name]
+    return rows
+
+
+@contextlib.contextmanager
+def thread_samples(pid: int, out: dict, every: float = 0.5):
+    """Sample pid's threads into out["samples"] as [monotonic ns, task_sample] while the block runs.
+
+    A row is kept only when the thread ran since the previous sample, so idle
+    threads cost nothing after the first sample."""
+    done, last = threading.Event(), {}
+    out.update(pid=pid, every_s=every, samples=[])
+
+    def sample():
+        while True:
+            now, rows = time.monotonic_ns(), task_sample(pid)
+            out["samples"].append([now, {tid: row for tid, row in rows.items()
+                                         if last.get(tid, [None])[0] != row[0]}])
+            last.update(rows)
+            if done.wait(every):
+                return
+    worker = threading.Thread(target=sample, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        done.set()
+        worker.join()
+
+
 @contextlib.contextmanager
 def gpu_lock(path: Path | None):
     if path is None:
@@ -413,15 +459,17 @@ def main() -> None:
     run = {"interference": interference, "overhead": overhead, "openloop": openloop,
            "multicause": multicause}[args.experiment]
     load: list = []
+    threads: dict = {}
     with gpu_lock(args.lock), load_samples(load):
         process = server(args, args.out)
         try:
             wait_ready(process, args.port)
             args.server_pid = process.pid
             asyncio.run(stream_warmup(args.port))
-            started = time.monotonic_ns()
-            results = asyncio.run(run(args))
-            ended = time.monotonic_ns()
+            with thread_samples(engine_core(process.pid), threads):
+                started = time.monotonic_ns()
+                results = asyncio.run(run(args))
+                ended = time.monotonic_ns()
             if args.mode != "off" and not flush_collectors(process.pid):
                 raise RuntimeError("no collector control socket found under the server")
         finally:
@@ -434,7 +482,8 @@ def main() -> None:
     (args.out / "client.json").write_text(json.dumps({
         "experiment": args.experiment, "mode": args.mode, "seed": args.seed, "round": args.round,
         "model": args.model, "revision": args.revision, "gpu_memory_utilization": args.gpu_memory_utilization,
-        "started_ns": started, "ended_ns": ended, "loadavg": load, "results": results}))
+        "started_ns": started, "ended_ns": ended, "loadavg": load, "threads": threads,
+        "results": results}))
     print(args.out)
 
 
