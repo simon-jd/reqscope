@@ -99,6 +99,25 @@ assert lib.reqscope_flush() == 0
         self.assertTrue(losses)
         self.assertTrue(any(r["reason"] == "malformed_record" and r["count"] >= 1 for r in losses))
 
+    def test_flush_writes_cumulative_collector_stats(self):
+        self.child('''
+assert emit("first") == 0
+assert lib.reqscope_flush() == 0
+assert emit("second") == 0
+assert lib.reqscope_flush() == 0
+''')
+        recording = read_run(self.output)
+        stats = [r for r in recording.records if r["type"] == "CollectorStats"]
+        self.assertGreaterEqual(len(stats), 2)
+        sites = [r["sites"] for r in stats]
+        self.assertEqual(sites[0]["emit_json"]["calls"], 1)
+        self.assertEqual(sites[-1]["emit_json"]["calls"], 2)
+        self.assertGreaterEqual(sites[-1]["write_record"]["calls"], 2)
+        self.assertEqual(sites[-1]["emit_json"]["engine_calls"], 0)  # no step pushed on this thread
+        for site in sites[-1].values():
+            self.assertLessEqual(site["max_ns"], site["ns"])
+        self.assertGreater(stats[-1]["writer_cpu_ns"], 0)
+
     def test_queue_exhaustion_is_accounted_and_nonblocking(self):
         self.env["REQSCOPE_QUEUE_SLOTS"] = "2"
         result = self.child('''

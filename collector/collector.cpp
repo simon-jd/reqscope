@@ -1,6 +1,7 @@
 #include "collector/reqscope.h"
 #include "collector/backend.hpp"
 #include "collector/bounded_queue.hpp"
+#include "collector/self_stats.hpp"
 #include "format/segment.hpp"
 #include <algorithm>
 #include <array>
@@ -23,6 +24,7 @@
 #include <thread>
 #include <vector>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -62,6 +64,16 @@ uint64_t monotonic_ns() noexcept {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return uint64_t(ts.tv_sec) * 1000000000ULL + uint64_t(ts.tv_nsec);
 }
+static uint64_t thread_cpu_ns() noexcept {
+    timespec ts{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return uint64_t(ts.tv_sec) * 1000000000ULL + uint64_t(ts.tv_nsec);
+}
+static SelfStats stats_storage;
+static thread_local bool engine_thread = false;
+SelfStats& self_stats() noexcept { return stats_storage; }
+bool on_engine_thread() noexcept { return engine_thread; }
+void mark_engine_thread() noexcept { engine_thread = true; }
 static std::string env_string(const char* key, const std::string& fallback) {
     const char* value = std::getenv(key);
     return value && *value ? value : fallback;
@@ -114,6 +126,7 @@ public:
     Json header;
     BackendInfo backend;
     uint64_t sequence = 0, segment_number = 0, segment_bytes = 0;
+    uint64_t started_ns = 0, last_stats = 0, writer_sleep_ns = 0;
     const uint64_t ring_ns, ring_bytes, target_segment_bytes;
     const uint64_t slow_step_ns, max_triggers;
     uint64_t trigger_count = 0, last_trigger = 0, pending_trigger = 0;
@@ -241,7 +254,10 @@ public:
         record["seq"] = ++sequence;
         record["pid"] = uint64_t(owner);
         if (!record.contains("timestamp")) record["timestamp"] = monotonic_ns();
-        segment_bytes += writer->write(record);
+        {
+            Timed timed(Site::write_record);
+            segment_bytes += writer->write(record);
+        }
         current.last_seq = sequence;
         current.end = monotonic_ns();
         if (slow_step_ns && record.string("type") == "Step" &&
@@ -260,6 +276,7 @@ public:
         // when the configured segment target is smaller than its own header.
         if (rotate && (segment_bytes >= target_segment_bytes ||
                        current.end - current.begin >= 1000000000ULL)) {
+            Timed timed(Site::rotate_segment);
             close_segment();
             enforce_retention();
         }
@@ -313,9 +330,31 @@ public:
                 {"observed_time_range", Json::array({first ? first : last, last})}, {"range_known", false}}));
         }
     }
+    // Cumulative totals since the collector started; a reader takes deltas.
+    void report_stats() {
+        auto& stats = self_stats();
+        Json sites = Json::object({});
+        for (size_t i = 0; i < static_cast<size_t>(Site::count); ++i) {
+            const auto& site = stats.sites[i];
+            sites[site_names[i]] = Json::object({{"calls", site.calls.load(std::memory_order_relaxed)},
+                {"ns", site.ns.load(std::memory_order_relaxed)},
+                {"max_ns", site.max_ns.load(std::memory_order_relaxed)},
+                {"engine_calls", site.engine_calls.load(std::memory_order_relaxed)}});
+        }
+        emit(Json::object({{"type", "CollectorStats"}, {"sites", std::move(sites)},
+            {"timestamp_callbacks", stats.timestamp_callbacks.load(std::memory_order_relaxed)},
+            {"cupti_records", stats.cupti_records.load(std::memory_order_relaxed)},
+            {"cupti_bytes", stats.cupti_bytes.load(std::memory_order_relaxed)},
+            {"writer_cpu_ns", thread_cpu_ns()}, {"writer_sleep_ns", writer_sleep_ns},
+            {"probe_cpu_ns", stats.probe_cpu_ns.load(std::memory_order_relaxed)},
+            {"since_ns", started_ns}}), false);
+        last_stats = monotonic_ns();
+    }
     bool drain_one() {
         return queue.try_pop([this](Pending& pending) {
             if (pending.kind == Pending::cupti) {
+                Timed timed(Site::process_buffer);
+                self_stats().cupti_bytes.fetch_add(pending.length, std::memory_order_relaxed);
                 try { backend_process(pending.buffer, pending.length, pending.context, pending.stream,
                                       [this](Json value) { emit(std::move(value)); }); }
                 catch (...) { backend_release(pending.buffer); throw; }
@@ -415,6 +454,8 @@ public:
         close(client);
     }
     void run() noexcept {
+        pthread_setname_np(pthread_self(), "rqs-writer");
+        started_ns = last_stats = monotonic_ns();
         try {
             emit(Json::object({{"type", "Session"}, {"state", header.string("session_state")},
                               {"backend_status", backend.status}, {"backend_error", backend.error}}));
@@ -431,21 +472,29 @@ public:
                 report_losses();
                 automatic_snapshot();
                 if (writer && (segment_bytes >= target_segment_bytes || monotonic_ns() - current.begin >= 1000000000ULL)) {
+                    Timed timed(Site::rotate_segment);
                     close_segment(); enforce_retention();
                 }
+                if (monotonic_ns() - last_stats >= 1000000000ULL) report_stats();
                 const auto requested = flush_requested.load();
                 if (requested > flush_completed.load() && queue.empty()) {
+                    report_stats();
                     close_segment(true); enforce_retention(); close_segment(true);
                     flush_completed.store(requested);
                     flush_condition.notify_all();
                 }
                 serve_control();
                 if (received_signal.load()) { stopping.store(true); break; }
-                if (!work) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                if (!work) {
+                    const auto slept = monotonic_ns();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    writer_sleep_ns += monotonic_ns() - slept;
+                }
             }
             backend_stop();
             while (drain_one()) {}
             report_losses();
+            report_stats();
             emit(Json::object({{"type", "Session"}, {"state", "Finalized"}, {"signal", received_signal.load()}}));
             close_segment(true); enforce_retention(); close_segment(true);
         } catch (const std::exception& error) {
@@ -537,6 +586,7 @@ extern "C" int reqscope_emit_json(const char* record) {
     size_t length = strnlen(record, max_json_size);
     if (length == max_json_size) { note_loss(LossReason::oversize_record); return -1; }
     if (!length) { note_loss(LossReason::malformed_record); return -1; }
+    Timed timed(Site::emit_json);
     if (!collector->queue.try_push([=](Pending& pending) {
         pending.kind = Pending::json; pending.length = length;
         std::memcpy(pending.data.data(), record, length);

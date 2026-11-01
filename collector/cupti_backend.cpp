@@ -1,10 +1,13 @@
 #include "collector/backend.hpp"
 #include "collector/clock_probe.hpp"
+#include "collector/self_stats.hpp"
 #include <array>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <pthread.h>
+#include <time.h>
 #include <filesystem>
 #include <chrono>
 #include <condition_variable>
@@ -78,6 +81,7 @@ bool light_api_name(std::string_view name) {
 void CUPTIAPI subscriber_callback(void*, CUpti_CallbackDomain domain,
                                  CUpti_CallbackId id, const void* data) {
     if (domain != CUPTI_CB_DOMAIN_RESOURCE || !data) return;
+    Timed timed(Site::resource_callback);
     const auto* resource = static_cast<const CUpti_ResourceData*>(data);
     const auto* graph = static_cast<const CUpti_GraphData*>(resource->resourceDescriptor);
     if (!graph) { note_loss(LossReason::graph_metadata_error); return; }
@@ -154,6 +158,7 @@ private:
                bind(d.exchange_capture_mode, "cuThreadExchangeStreamCaptureMode");
     }
     void run() {
+        pthread_setname_np(pthread_self(), "rqs-probe");
         auto emit = [](const std::string& record) { reqscope_emit_json(record.c_str()); };
         ProbeDriver d;
         const bool loaded = load(d);
@@ -162,7 +167,14 @@ private:
         std::unique_lock<std::mutex> lock(mutex);
         while (!core.stopped() && !wake.wait_for(lock, interval, [this] { return stopping; })) {
             lock.unlock();
-            core.tick();
+            {
+                Timed timed(Site::probe_tick);
+                core.tick();
+            }
+            timespec cpu{};
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu);
+            self_stats().probe_cpu_ns.store(uint64_t(cpu.tv_sec) * 1000000000ULL + uint64_t(cpu.tv_nsec),
+                                            std::memory_order_relaxed);
             lock.lock();
         }
         lock.unlock();
@@ -179,8 +191,12 @@ private:
 };
 ClockProbe clock_probe;
 
-uint64_t CUPTIAPI timestamp_callback() { return monotonic_ns(); }
+uint64_t CUPTIAPI timestamp_callback() {
+    self_stats().timestamp_callbacks.fetch_add(1, std::memory_order_relaxed);
+    return monotonic_ns();
+}
 void CUPTIAPI requested(uint8_t** buffer, size_t* size, size_t* max_records) {
+    Timed timed(Site::buffer_request);
     *buffer = nullptr; *size = 0; *max_records = 0;
     for (size_t i = 0; i < buffer_count; ++i) {
         auto& candidate = buffers[i];
@@ -194,6 +210,7 @@ void CUPTIAPI requested(uint8_t** buffer, size_t* size, size_t* max_records) {
 void CUPTIAPI completed(CUcontext context, uint32_t stream, uint8_t* buffer,
                         size_t, size_t valid) {
     if (!buffer) return;
+    Timed timed(Site::buffer_complete);
     if (!valid) { backend_release(buffer); return; }
     if (!enqueue_cupti_buffer(buffer, valid, reinterpret_cast<uintptr_t>(context), stream)) {
         note_loss(LossReason::cupti_completed_queue_full);
@@ -409,6 +426,8 @@ void backend_stop() noexcept {
 #endif
 }
 int backend_push(uint64_t step) noexcept {
+    mark_engine_thread();
+    Timed timed(Site::push_step);
 #ifdef REQSCOPE_HAS_CUPTI
     if (active.load() && cuptiActivityPushExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM0, step) != CUPTI_SUCCESS) {
         note_loss(LossReason::correlation_error); return -1;
@@ -420,6 +439,7 @@ int backend_push(uint64_t step) noexcept {
     return 0;
 }
 int backend_pop() noexcept {
+    Timed timed(Site::pop_step);
     if (!correlation_depth) { note_loss(LossReason::correlation_error); return -1; }
 #ifdef REQSCOPE_HAS_CUPTI
     if (active.load()) {
@@ -452,6 +472,7 @@ void backend_process(uint8_t* buffer, size_t valid, uintptr_t context, uint32_t 
         const auto result = cuptiActivityGetNextRecord(buffer, valid, &activity);
         if (result == CUPTI_ERROR_MAX_LIMIT_REACHED) break;
         if (result != CUPTI_SUCCESS) { note_loss(LossReason::cupti_parse_error); break; }
+        self_stats().cupti_records.fetch_add(1, std::memory_order_relaxed);
         switch (activity->kind) {
         case CUPTI_ACTIVITY_KIND_DRIVER:
         case CUPTI_ACTIVITY_KIND_RUNTIME: {

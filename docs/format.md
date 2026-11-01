@@ -53,6 +53,7 @@ process in `target_producer`.
 | SchedulerSample | runtime and run-queue deltas with resolution_ns; it does not replace Sched |
 | Loss | reason, count; optional seq_range, time_range, count_unit |
 | Session | state, with the backend error or exit signal if any |
+| CollectorStats | sites{name: calls, ns, max_ns, engine_calls}, timestamp_callbacks, cupti_records, cupti_bytes, writer_cpu_ns, writer_sleep_ns, probe_cpu_ns, since_ns; the collector's own time per site, cumulative since `since_ns`, written every second and on flush. `engine_calls` counts calls on a thread that has pushed a step id |
 
 ## Losses
 
