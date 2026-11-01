@@ -16,6 +16,8 @@ here are derived from them.
 | `ablation.json` | `interference-s5`, then `ablation-trace` and `ablation-plugin` (pair 1) and `ablation-trace-2` and `ablation-plugin-2` (pair 2) | `bench/compare_runs.py --load`, after `bench/score.py interference` on each |
 | `openloop.json` | `openloop-{off,plugin,light,trace}-r1` to `-r5` | `bench/score.py openloop --load` |
 | `multicause.json` | `multicause-trace-s1` to `-s3` and `multicause-plugin-s1` to `-s3` | `bench/score_causes.py`, which runs `reqscope blame` on each capture and compares it with the injected events in `client.json` |
+| `trace-cost.json` | `tracecost-{off,plugin,light,trace}`, then `tracecost-trace-text-dev32`, `-ecores` and `-flush1` | `bench/trace_cost.py`: one 40 s open-loop run at 16 requests/s each; the collector's CollectorStats, EngineCore thread samples, CUDA API durations, slow launches and graph-launch stalls |
+| `launch-cost.json` | `results/raw/launch-cost/*.json` | `bench/launch_cost.py`, one file per run, gathered with a `config` and `collector` label per run |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
 
 Notes:
@@ -51,5 +53,21 @@ Notes:
   and the GPU lock for each run (the GPU burner ran inside that hold). The
   cause rules were fixed on `multicause-pilot-trace` (seed 100), which is
   not scored. Each run's `client.json` has its host load samples.
+- The `tracecost-*` runs measured where trace mode's time goes. The first
+  four (off, plugin, light, trace) used the collector of commit 8b4670e,
+  built with switches for the experiments below left unset, and the bench
+  scripts of afb0fed. The other three used `--collector-env` (3218aeb)
+  and builds with the text writer and 32 MB device buffers:
+  `tracecost-trace-text-dev32` with an option to pin the collector's
+  threads set to none, which is what 983884e does; `-ecores` with the
+  writer, probe and CUPTI's worker pinned to the efficiency cores; and
+  `-flush1` with a 1 ms CUPTI flush period. The last two were not kept.
+  All held the GPU lock, with `--gpu-memory-utilization 0.6`.
+- In `launch-cost.json`, `fast_pace` runs used an earlier revision of
+  `bench/launch_cost.py` whose kernels touched 256 floats, as `--size 256
+  --steps 5000` does now; at that pace the Json writer could not drain
+  CUPTI's buffers, so those runs measure a saturated writer. `decode_pace`
+  runs used the committed script. The `env` of each run lists the
+  experiment switches set; the `collector` label says which build ran.
 - Overhead rounds 2 and 3 kept only client timings, so the write rates in
   `captures.json` come from round 1.

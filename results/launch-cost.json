@@ -1,0 +1,1017 @@
+{
+ "fast_pace": {
+  "settings": "--size 256 --steps 5000 --warmup 500: 0.4-0.7 ms steps, faster than the Json writer could drain",
+  "runs": [
+   {
+    "config": "big",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_BUFFER_KB": "4096"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.79,
+    "launch": {
+     "p50_us": 291.6,
+     "p90_us": 343.9,
+     "p99_us": 519.4,
+     "max_us": 1661.9,
+     "mean_us": 314.1,
+     "over_2x_median": 22
+    },
+    "step": {
+     "p50_us": 601.3,
+     "p90_us": 636.3,
+     "p99_us": 821.0,
+     "max_us": 1772.0,
+     "mean_us": 619.9,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "big",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_BUFFER_KB": "4096"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.82,
+    "launch": {
+     "p50_us": 294.3,
+     "p90_us": 346.1,
+     "p99_us": 519.6,
+     "max_us": 1609.2,
+     "mean_us": 315.4,
+     "over_2x_median": 27
+    },
+    "step": {
+     "p50_us": 600.8,
+     "p90_us": 633.4,
+     "p99_us": 819.5,
+     "max_us": 1715.8,
+     "mean_us": 618.9,
+     "over_2x_median": 21
+    }
+   },
+   {
+    "config": "bigzero",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_BUFFER_KB": "4096",
+     "REQSCOPE_CUPTI_ZEROED_BUFFERS": "1"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.58,
+    "launch": {
+     "p50_us": 300.0,
+     "p90_us": 343.3,
+     "p99_us": 493.4,
+     "max_us": 1582.0,
+     "mean_us": 320.9,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 606.6,
+     "p90_us": 636.0,
+     "p99_us": 751.9,
+     "max_us": 1805.8,
+     "mean_us": 622.7,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "bigzero",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_BUFFER_KB": "4096",
+     "REQSCOPE_CUPTI_ZEROED_BUFFERS": "1"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.61,
+    "launch": {
+     "p50_us": 296.7,
+     "p90_us": 341.4,
+     "p99_us": 480.2,
+     "max_us": 1458.0,
+     "mean_us": 316.1,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 600.1,
+     "p90_us": 629.4,
+     "p99_us": 744.0,
+     "max_us": 1753.9,
+     "mean_us": 615.9,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "dev32",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_DEVICE_BUFFER_BYTES": "32000000",
+     "REQSCOPE_CUPTI_DEVICE_PREALLOCATE": "4"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.76,
+    "launch": {
+     "p50_us": 447.3,
+     "p90_us": 468.1,
+     "p99_us": 483.9,
+     "max_us": 1357.2,
+     "mean_us": 451.7,
+     "over_2x_median": 1
+    },
+    "step": {
+     "p50_us": 725.2,
+     "p90_us": 737.0,
+     "p99_us": 746.5,
+     "max_us": 1522.6,
+     "mean_us": 726.4,
+     "over_2x_median": 1
+    }
+   },
+   {
+    "config": "dev32",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_DEVICE_BUFFER_BYTES": "32000000",
+     "REQSCOPE_CUPTI_DEVICE_PREALLOCATE": "4"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.66,
+    "launch": {
+     "p50_us": 461.8,
+     "p90_us": 469.3,
+     "p99_us": 488.4,
+     "max_us": 1997.1,
+     "mean_us": 458.6,
+     "over_2x_median": 1
+    },
+    "step": {
+     "p50_us": 731.0,
+     "p90_us": 736.4,
+     "p99_us": 747.9,
+     "max_us": 2005.9,
+     "mean_us": 729.2,
+     "over_2x_median": 1
+    }
+   },
+   {
+    "config": "ecore",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_WRITER_CPUS": "16-31"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.91,
+    "launch": {
+     "p50_us": 463.6,
+     "p90_us": 474.0,
+     "p99_us": 568.9,
+     "max_us": 1505.8,
+     "mean_us": 465.2,
+     "over_2x_median": 24
+    },
+    "step": {
+     "p50_us": 731.0,
+     "p90_us": 737.9,
+     "p99_us": 824.6,
+     "max_us": 1731.7,
+     "mean_us": 733.7,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "ecore",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_WRITER_CPUS": "16-31"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.72,
+    "launch": {
+     "p50_us": 460.2,
+     "p90_us": 472.2,
+     "p99_us": 529.6,
+     "max_us": 2001.4,
+     "mean_us": 459.4,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 729.6,
+     "p90_us": 738.3,
+     "p99_us": 785.4,
+     "max_us": 2011.9,
+     "mean_us": 730.9,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "fast",
+    "repeat": 1,
+    "collector": "text writer, with the experiment switches in env",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 5.08,
+    "launch": {
+     "p50_us": 304.2,
+     "p90_us": 325.6,
+     "p99_us": 398.2,
+     "max_us": 1454.7,
+     "mean_us": 312.9,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 607.0,
+     "p90_us": 625.0,
+     "p99_us": 687.1,
+     "max_us": 1753.9,
+     "mean_us": 615.1,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "fast",
+    "repeat": 2,
+    "collector": "text writer, with the experiment switches in env",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.97,
+    "launch": {
+     "p50_us": 319.7,
+     "p90_us": 356.9,
+     "p99_us": 464.0,
+     "max_us": 1658.8,
+     "mean_us": 330.4,
+     "over_2x_median": 26
+    },
+    "step": {
+     "p50_us": 619.4,
+     "p90_us": 648.8,
+     "p99_us": 737.4,
+     "max_us": 1915.2,
+     "mean_us": 628.9,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "fastecore",
+    "repeat": 1,
+    "collector": "text writer, with the experiment switches in env",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_WRITER_CPUS": "16-31"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.02,
+    "launch": {
+     "p50_us": 297.9,
+     "p90_us": 317.8,
+     "p99_us": 381.7,
+     "max_us": 1881.2,
+     "mean_us": 306.6,
+     "over_2x_median": 20
+    },
+    "step": {
+     "p50_us": 608.0,
+     "p90_us": 624.3,
+     "p99_us": 684.2,
+     "max_us": 1889.4,
+     "mean_us": 616.0,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "fastecore",
+    "repeat": 2,
+    "collector": "text writer, with the experiment switches in env",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_WRITER_CPUS": "16-31"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.27,
+    "launch": {
+     "p50_us": 304.8,
+     "p90_us": 324.2,
+     "p99_us": 400.1,
+     "max_us": 1631.5,
+     "mean_us": 313.4,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 607.6,
+     "p90_us": 623.8,
+     "p99_us": 691.5,
+     "max_us": 1762.1,
+     "mean_us": 615.5,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "flush10",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_FLUSH_MS": "10"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.26,
+    "launch": {
+     "p50_us": 460.6,
+     "p90_us": 474.4,
+     "p99_us": 563.5,
+     "max_us": 1664.0,
+     "mean_us": 460.7,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 729.8,
+     "p90_us": 740.2,
+     "p99_us": 820.8,
+     "max_us": 1888.4,
+     "mean_us": 732.3,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "flush10",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_FLUSH_MS": "10"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.68,
+    "launch": {
+     "p50_us": 465.6,
+     "p90_us": 486.0,
+     "p99_us": 591.3,
+     "max_us": 1768.9,
+     "mean_us": 473.2,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 733.5,
+     "p90_us": 747.5,
+     "p99_us": 838.5,
+     "max_us": 1876.5,
+     "mean_us": 739.3,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "light",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "light",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.8,
+    "launch": {
+     "p50_us": 139.8,
+     "p90_us": 144.0,
+     "p99_us": 157.1,
+     "max_us": 1285.9,
+     "mean_us": 140.3,
+     "over_2x_median": 2
+    },
+    "step": {
+     "p50_us": 391.3,
+     "p90_us": 392.9,
+     "p99_us": 397.4,
+     "max_us": 1328.0,
+     "mean_us": 391.9,
+     "over_2x_median": 1
+    }
+   },
+   {
+    "config": "light",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "light",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.73,
+    "launch": {
+     "p50_us": 142.7,
+     "p90_us": 151.7,
+     "p99_us": 222.5,
+     "max_us": 1185.6,
+     "mean_us": 144.4,
+     "over_2x_median": 5
+    },
+    "step": {
+     "p50_us": 390.3,
+     "p90_us": 393.7,
+     "p99_us": 411.0,
+     "max_us": 1197.1,
+     "mean_us": 391.4,
+     "over_2x_median": 1
+    }
+   },
+   {
+    "config": "nice",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_WRITER_NICE": "10"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.08,
+    "launch": {
+     "p50_us": 442.4,
+     "p90_us": 465.4,
+     "p99_us": 538.8,
+     "max_us": 1547.0,
+     "mean_us": 451.0,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 719.5,
+     "p90_us": 732.9,
+     "p99_us": 774.7,
+     "max_us": 1797.9,
+     "mean_us": 725.7,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "nice",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_WRITER_NICE": "10"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.87,
+    "launch": {
+     "p50_us": 463.0,
+     "p90_us": 477.0,
+     "p99_us": 547.3,
+     "max_us": 1878.8,
+     "mean_us": 468.3,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 731.1,
+     "p90_us": 740.9,
+     "p99_us": 802.0,
+     "max_us": 1888.4,
+     "mean_us": 736.0,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "off",
+    "repeat": 1,
+    "collector": "none (libcupti preloaded only)",
+    "mode": "off",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.73,
+    "launch": {
+     "p50_us": 74.4,
+     "p90_us": 77.4,
+     "p99_us": 80.0,
+     "max_us": 156.5,
+     "mean_us": 75.2,
+     "over_2x_median": 2
+    },
+    "step": {
+     "p50_us": 366.9,
+     "p90_us": 367.2,
+     "p99_us": 401.9,
+     "max_us": 481.0,
+     "mean_us": 367.5,
+     "over_2x_median": 0
+    }
+   },
+   {
+    "config": "off",
+    "repeat": 2,
+    "collector": "none (libcupti preloaded only)",
+    "mode": "off",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.62,
+    "launch": {
+     "p50_us": 77.1,
+     "p90_us": 79.0,
+     "p99_us": 89.7,
+     "max_us": 113.1,
+     "mean_us": 77.2,
+     "over_2x_median": 0
+    },
+    "step": {
+     "p50_us": 366.8,
+     "p90_us": 367.1,
+     "p99_us": 368.6,
+     "max_us": 480.8,
+     "mean_us": 366.9,
+     "over_2x_median": 0
+    }
+   },
+   {
+    "config": "old",
+    "repeat": 1,
+    "collector": "commit 3ee45a6 (before this work)",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.8,
+    "launch": {
+     "p50_us": 445.6,
+     "p90_us": 456.4,
+     "p99_us": 500.8,
+     "max_us": 1981.9,
+     "mean_us": 447.1,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 719.7,
+     "p90_us": 726.9,
+     "p99_us": 755.6,
+     "max_us": 1991.7,
+     "mean_us": 722.7,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "old",
+    "repeat": 2,
+    "collector": "commit 3ee45a6 (before this work)",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.72,
+    "launch": {
+     "p50_us": 444.3,
+     "p90_us": 453.6,
+     "p99_us": 528.5,
+     "max_us": 1673.1,
+     "mean_us": 445.3,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 717.9,
+     "p90_us": 724.7,
+     "p99_us": 774.5,
+     "max_us": 1682.1,
+     "mean_us": 720.3,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "plugin",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "plugin",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.02,
+    "launch": {
+     "p50_us": 79.8,
+     "p90_us": 81.6,
+     "p99_us": 84.2,
+     "max_us": 99.0,
+     "mean_us": 79.0,
+     "over_2x_median": 0
+    },
+    "step": {
+     "p50_us": 369.5,
+     "p90_us": 369.7,
+     "p99_us": 370.4,
+     "max_us": 374.5,
+     "mean_us": 369.5,
+     "over_2x_median": 0
+    }
+   },
+   {
+    "config": "plugin",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "plugin",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.73,
+    "launch": {
+     "p50_us": 78.3,
+     "p90_us": 80.5,
+     "p99_us": 89.8,
+     "max_us": 143.2,
+     "mean_us": 78.5,
+     "over_2x_median": 0
+    },
+    "step": {
+     "p50_us": 367.2,
+     "p90_us": 367.5,
+     "p99_us": 369.0,
+     "max_us": 380.1,
+     "mean_us": 367.3,
+     "over_2x_median": 0
+    }
+   },
+   {
+    "config": "trace",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.06,
+    "launch": {
+     "p50_us": 459.4,
+     "p90_us": 469.8,
+     "p99_us": 541.9,
+     "max_us": 1523.3,
+     "mean_us": 458.4,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 730.6,
+     "p90_us": 738.1,
+     "p99_us": 802.6,
+     "max_us": 1715.6,
+     "mean_us": 731.8,
+     "over_2x_median": 20
+    }
+   },
+   {
+    "config": "trace",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.15,
+    "launch": {
+     "p50_us": 468.7,
+     "p90_us": 483.2,
+     "p99_us": 683.7,
+     "max_us": 1513.6,
+     "mean_us": 470.7,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 738.0,
+     "p90_us": 748.5,
+     "p99_us": 868.6,
+     "max_us": 1737.2,
+     "mean_us": 741.2,
+     "over_2x_median": 19
+    }
+   },
+   {
+    "config": "zero",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_ZEROED_BUFFERS": "1"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 3.3,
+    "launch": {
+     "p50_us": 461.2,
+     "p90_us": 477.0,
+     "p99_us": 563.1,
+     "max_us": 1690.4,
+     "mean_us": 466.5,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 731.8,
+     "p90_us": 743.3,
+     "p99_us": 828.8,
+     "max_us": 1808.2,
+     "mean_us": 736.8,
+     "over_2x_median": 21
+    }
+   },
+   {
+    "config": "zero",
+    "repeat": 2,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_ZEROED_BUFFERS": "1"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 5000,
+    "load1": 2.98,
+    "launch": {
+     "p50_us": 460.8,
+     "p90_us": 472.3,
+     "p99_us": 548.6,
+     "max_us": 1572.9,
+     "mean_us": 460.5,
+     "over_2x_median": 21
+    },
+    "step": {
+     "p50_us": 728.2,
+     "p90_us": 736.1,
+     "p99_us": 804.8,
+     "max_us": 1794.7,
+     "mean_us": 729.8,
+     "over_2x_median": 20
+    }
+   }
+  ]
+ },
+ "decode_pace": {
+  "settings": "--size 1048576 --steps 3000 --warmup 500: 1.2-1.4 ms steps",
+  "runs": [
+   {
+    "config": "b4",
+    "repeat": 1,
+    "collector": "text writer + 32 MB device buffers + writer, probe and CUPTI worker on efficiency cores (not kept)",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 3000,
+    "size": 1048576,
+    "load1": 3.4,
+    "launch": {
+     "p50_us": 300.0,
+     "p90_us": 363.1,
+     "p99_us": 401.0,
+     "max_us": 625.9,
+     "mean_us": 311.8,
+     "over_2x_median": 1
+    },
+    "step": {
+     "p50_us": 1394.8,
+     "p90_us": 1445.6,
+     "p99_us": 1479.2,
+     "max_us": 1593.1,
+     "mean_us": 1403.8,
+     "over_2x_median": 0
+    },
+    "capture": {
+     "losses": {
+      "ring_overwrite": 13407763
+     },
+     "writer_cpu_s": 1.632,
+     "cupti_records": 1738850
+    }
+   },
+   {
+    "config": "b4nohelp",
+    "repeat": 1,
+    "collector": "text writer + 32 MB device buffers, as committed in 983884e",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_HELPER_CPUS": "none"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 3000,
+    "size": 1048576,
+    "load1": 3.27,
+    "launch": {
+     "p50_us": 307.0,
+     "p90_us": 365.0,
+     "p99_us": 397.3,
+     "max_us": 509.1,
+     "mean_us": 316.2,
+     "over_2x_median": 0
+    },
+    "step": {
+     "p50_us": 1399.3,
+     "p90_us": 1449.8,
+     "p99_us": 1478.7,
+     "max_us": 1603.4,
+     "mean_us": 1407.4,
+     "over_2x_median": 0
+    },
+    "capture": {
+     "losses": {
+      "ring_overwrite": 13408006
+     },
+     "writer_cpu_s": 1.085,
+     "cupti_records": 1738850
+    }
+   },
+   {
+    "config": "dev32",
+    "repeat": 1,
+    "collector": "Json writer of 8b4670e, with the experiment switches in env (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_DEVICE_BUFFER_BYTES": "33554432",
+     "REQSCOPE_CUPTI_DEVICE_PREALLOCATE": "4"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 3000,
+    "size": 1048576,
+    "load1": 3.35,
+    "launch": {
+     "p50_us": 306.2,
+     "p90_us": 356.4,
+     "p99_us": 388.1,
+     "max_us": 813.4,
+     "mean_us": 313.3,
+     "over_2x_median": 5
+    },
+    "step": {
+     "p50_us": 1397.7,
+     "p90_us": 1443.5,
+     "p99_us": 1474.4,
+     "max_us": 1606.0,
+     "mean_us": 1405.2,
+     "over_2x_median": 0
+    },
+    "capture": {
+     "losses": {
+      "ring_overwrite": 13404557
+     },
+     "writer_cpu_s": 4.492,
+     "cupti_records": 1738850
+    }
+   },
+   {
+    "config": "flush1",
+    "repeat": 1,
+    "collector": "text writer + 32 MB device buffers + cuptiActivityFlushPeriod(1) (not kept)",
+    "mode": "trace",
+    "env": {
+     "REQSCOPE_CUPTI_FLUSH_MS": "1",
+     "REQSCOPE_CUPTI_DEVICE_BUFFER_BYTES": "33554432",
+     "REQSCOPE_CUPTI_DEVICE_PREALLOCATE": "4"
+    },
+    "nodes": 400,
+    "eager": 30,
+    "steps": 3000,
+    "size": 1048576,
+    "load1": 3.17,
+    "launch": {
+     "p50_us": 300.9,
+     "p90_us": 316.4,
+     "p99_us": 343.5,
+     "max_us": 507.1,
+     "mean_us": 303.5,
+     "over_2x_median": 0
+    },
+    "step": {
+     "p50_us": 1398.9,
+     "p90_us": 1411.9,
+     "p99_us": 1445.6,
+     "max_us": 1600.0,
+     "mean_us": 1401.5,
+     "over_2x_median": 0
+    },
+    "capture": {
+     "losses": {
+      "ring_overwrite": 13408032
+     },
+     "writer_cpu_s": 1.679,
+     "cupti_records": 1738850
+    }
+   },
+   {
+    "config": "off",
+    "repeat": 1,
+    "collector": "none (libcupti preloaded only)",
+    "mode": "off",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 3000,
+    "size": 1048576,
+    "load1": 2.83,
+    "launch": {
+     "p50_us": 79.0,
+     "p90_us": 81.1,
+     "p99_us": 85.7,
+     "max_us": 112.2,
+     "mean_us": 79.4,
+     "over_2x_median": 0
+    },
+    "step": {
+     "p50_us": 1172.2,
+     "p90_us": 1173.8,
+     "p99_us": 1175.4,
+     "max_us": 1439.7,
+     "mean_us": 1172.8,
+     "over_2x_median": 0
+    },
+    "capture": {
+     "losses": {}
+    }
+   },
+   {
+    "config": "old",
+    "repeat": 1,
+    "collector": "commit 3ee45a6 (before this work)",
+    "mode": "trace",
+    "env": {},
+    "nodes": 400,
+    "eager": 30,
+    "steps": 3000,
+    "size": 1048576,
+    "load1": 3.77,
+    "launch": {
+     "p50_us": 298.0,
+     "p90_us": 314.7,
+     "p99_us": 355.6,
+     "max_us": 1429.2,
+     "mean_us": 305.0,
+     "over_2x_median": 13
+    },
+    "step": {
+     "p50_us": 1400.5,
+     "p90_us": 1415.6,
+     "p99_us": 1452.1,
+     "max_us": 2524.3,
+     "mean_us": 1406.9,
+     "over_2x_median": 0
+    },
+    "capture": {
+     "losses": {
+      "ring_overwrite": 13403799
+     }
+    }
+   }
+  ]
+ }
+}

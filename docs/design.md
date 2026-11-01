@@ -62,6 +62,48 @@ with every API enabled, `cudaGetDevice` alone was half of 1.8M API records.
 The single writer could not keep up, and CUPTI dropped 1.5M records in
 22.7 s (`results/captures.json`, run `interference-s3`).
 
+**What trace mode costs the engine.** Each capture carries the collector's
+own accounting (`CollectorStats`: calls, time and longest call per site,
+and which ran on an engine thread), and the benchmark samples every
+EngineCore thread from `/proc`. One 40 s open-loop run per configuration
+at 16 requests/s, read by `bench/trace_cost.py`
+([results/trace-cost.json](../results/trace-cost.json)):
+- **The collector's code on the engine thread is not the cost.** Buffer
+  requests (64/s, under 0.3 µs), step push and pop (350/s each, under
+  0.6 µs) and plugin records (190/s, 0.2 µs) add up to under 0.1% of a
+  core. CUPTI never returned a buffer on an engine thread.
+- **CUPTI's work inside each launch is,** and the collector cannot change
+  it short of not tracing every kernel: the decode step's graph launch
+  (about 400 kernel nodes) takes 277 µs in trace mode against 72 µs in
+  light mode.
+- **The writer was 0.33 cores,** 5.1 ms per 256 KB CUPTI buffer: 1.8 µs
+  per record to frame it and most of the rest building Json objects. While
+  it ran that way, 8% of kernel and copy launches (29,243 in 42 s) took
+  over 100 µs, nearly all in runs of three or more consecutive launches of
+  about 250 µs each: 7.2 s of launch time. The writer now formats each
+  record as text (0.32 µs to frame, 0.10 cores in all) and those runs are
+  gone (2,563 launches over 100 µs, 3 in runs; 4.4 s). Why the Json
+  writer slowed launches on another thread is not established: slow
+  launches overlapped the writer's busy intervals less often than other
+  launches (15% against 40%), and CUPTI's own worker thread also fell from
+  0.28 to 0.12 cores. The old writer allocated and freed several objects
+  per record.
+- **Graph launches over 1 ms** (27 in 42 s, median 1.44 ms, 1.3 s apart)
+  come partly from CUPTI moving to its next device buffer: in
+  `bench/launch_cost.py` the default 3.2 MB buffer gave 21 such stalls in
+  5,000 steps and a 32 MB buffer 1 ([results/launch-cost.json](../results/launch-cost.json)).
+  The collector now asks for 32 MB buffers, four allocated up front. In
+  vLLM 15 remained in 42 s, so not all of them are buffer switches.
+- **Not kept:** running the writer, the probe and CUPTI's worker on the
+  host's efficiency cores (TPOT p50 5.51 ms against 5.36 ms unpinned, and
+  8.4 s of slow launches against 4.4 s); a 1 ms CUPTI flush period (TPOT
+  p99 14.3 ms, 150 stalls); pre-zeroed host buffers and a lower writer
+  priority, which changed nothing in `bench/launch_cost.py`. 4 MB host
+  buffers helped there only at a step rate the Json writer could not
+  drain. The engine thread ran on an efficiency core in 1% of samples and
+  waited for a CPU under 0.1% of the time, so CPU contention was not the
+  cost on this host at its load during these runs (2–5).
+
 **The vLLM plugin** (`adapter/vllm`) is a `vllm.general_plugins` entry point.
 It wraps:
 - `GPUModelRunner.execute_model` and `sample_tokens`:

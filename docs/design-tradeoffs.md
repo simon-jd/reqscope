@@ -121,6 +121,49 @@ figures). A binary encoding of the four record types that are 99% of a
 trace (GPU activity, API calls, external correlations, syncs) is the next
 step.
 
+## The writer formats CUPTI records as text
+
+**Decision.** The writer turns each CUPTI record straight into JSON text in
+one reused string and frames it. Records the plugin and the collector
+write about themselves still go through `Json`.
+
+**Alternatives.** Build a `Json` object per record and dump it (the
+earlier writer); a binary layout.
+
+**Why.** At 97,000 records/s (trace mode, 16 requests/s) the `Json` path
+kept the writer at 0.33 cores, and while it did, runs of kernel launches
+on the engine thread took about 250 µs each, 7.2 s of launch time in a
+42 s run (docs/design.md, "What trace mode costs the engine"). Writing
+text takes 0.32 µs per record and the runs are gone. A binary layout would
+be cheaper still, but would change the format and every reader of it.
+
+**Cost.** The record fields are written out twice in the code, once for
+text and once in the reader's expectations, with only a round-trip test
+of the text builder between them; nothing tests the CUPTI path itself
+without a GPU. The keys of CUPTI records are no longer sorted.
+
+## Large CUPTI device buffers
+
+**Decision.** CUPTI gets 32 MB device buffers (`REQSCOPE_CUPTI_DEVICE_BUFFER_MB`),
+four of them allocated when a context is created.
+
+**Alternatives.** CUPTI's default of 3.2 MB with three allocated up front;
+pinning the collector's and CUPTI's threads to the efficiency cores;
+a shorter CUPTI flush period.
+
+**Why.** Moving to the next device buffer stalled the launching thread for
+1–2 ms, every few hundred decode steps with the default size: 21 stalls in
+5,000 steps of `bench/launch_cost.py`, 1 with 32 MB. The two alternatives
+were measured and made trace mode slower (TPOT p50 5.51 ms pinned and p99
+14.3 ms with a 1 ms flush period, against 5.36 ms and 6.32 ms).
+
+**Cost.** By the settings, 128 MB of device memory per context. The KV
+cache vLLM reported varied by 0.3 GiB between these runs whatever the
+collector did (10.39 GiB with no collector, 10.71 GiB with 32 MB
+buffers), so the cost was too small to see there. Graph launches over
+1 ms still happen (15 in a 42 s run), so buffer switches were not the only
+source.
+
 ## Blame splits excess linearly over co-scheduled prefill
 
 **Decision.** A token gap above 1.5× the request's median is slow; its
