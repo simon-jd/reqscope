@@ -187,6 +187,67 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
         self.assertEqual(report["trace"]["issues_by_reason"], {"collector_failed": 1})
         self.assertEqual(report["trace"]["issues"][0]["detail"], "segment write failed")
 
+    def decode_trace(self, name, events, with_gpu=True):
+        """30 decode steps of request "a", one token every 2,000 ns; events[k] changes step k.
+
+        gpu: extra kernel time; host: extra host time after the kernel;
+        prefill: a co-scheduled 512-token prefill; inner_gpu / inner_host: a
+        second kernel that starts that much after the first ends, launched
+        with the first (the GPU was elsewhere) or by a late second launch."""
+        rows, times, steps_of_tokens, t = [], [], [], 1000
+        for k in range(1, 31):
+            e = events.get(k, {})
+            members = [member("a")] + ([member("b", tokens=512, phase="prefill")] if e.get("prefill") else [])
+            rows += [step(k, t, t + 300, members), *launch(k, k, t + 100)]
+            end = t + 1200 + e.get("gpu", 0)
+            if "inner_gpu" in e or "inner_host" in e:
+                idle = e.get("inner_gpu", e.get("inner_host"))
+                second = 1000 + k
+                if "inner_host" in e:
+                    rows += launch(second, k, t + 700 + idle - 100)
+                rows += [gpu(k, t + 200, t + 700), gpu(second if "inner_host" in e else k, t + 700 + idle,
+                                                       t + 1200 + idle, 2)]
+                end = t + 1200 + idle
+            elif with_gpu:
+                rows.append(gpu(k, t + 200, end))
+            token = end + 300 + e.get("host", 0)
+            times.append(token)
+            steps_of_tokens.append(k)
+            t = token + 500
+        rows.append(dict(request("a", 0, t), token_times=times, token_steps=steps_of_tokens))
+        if not with_gpu:
+            rows = [r for r in rows if r["type"] != "GpuActivity"]
+        report = json.loads(self.cli("blame", write_segment(self.root / name, rows)).stdout)
+        [row] = [r for r in report["requests"] if r["req_id"] == "a"]
+        return {gap["steps"][0]["step_id"]: gap for gap in row["slow_gaps"]}, report
+
+    def test_blame_names_the_cause_of_each_slow_step(self):
+        gaps, report = self.decode_trace("causes.rqs", {8: {"gpu": 2000}, 12: {"host": 3000},
+                                                        16: {"prefill": True, "gpu": 1500},
+                                                        20: {"inner_gpu": 2000}, 24: {"inner_host": 2000}})
+        self.assertEqual({k: g["cause"] for k, g in gaps.items()},
+                         {8: "gpu_slowdown", 12: "host_delay", 16: "interference",
+                          20: "gpu_slowdown", 24: "host_delay"})
+        self.assertEqual(gaps[8]["cause_evidence"]["gpu_busy_ns"] - gaps[8]["cause_evidence"]["gpu_busy_baseline_ns"],
+                         2000)
+        self.assertEqual(gaps[20]["cause_evidence"]["gpu_wait_inside_ns"], 2000)   # launched, not running
+        self.assertGreater(gaps[24]["cause_evidence"]["host_wait_inside_ns"], 1500)  # not yet launched
+        self.assertEqual(gaps[12]["cause_evidence"]["host_extra_ns"], 3000)  # over the usual 905 ns
+        self.assertEqual(report["summary"]["slow_gaps_by_cause"],
+                         {"gpu_slowdown": 2, "host_delay": 2, "interference": 1})
+
+    def test_without_gpu_records_only_interference_is_named(self):
+        gaps, _ = self.decode_trace("plugin.rqs", {8: {"gpu": 2000}, 12: {"host": 3000},
+                                                   16: {"prefill": True, "gpu": 1500}}, with_gpu=False)
+        self.assertEqual({k: g["cause"] for k, g in gaps.items()},
+                         {8: "undetermined", 12: "undetermined", 16: "interference"})
+
+    def test_when_both_grow_the_larger_component_names_the_cause(self):
+        gaps, _ = self.decode_trace("mostly-gpu.rqs", {8: {"gpu": 1500, "host": 500}})
+        self.assertEqual(gaps[8]["cause"], "gpu_slowdown")
+        gaps, _ = self.decode_trace("mostly-host.rqs", {8: {"gpu": 500, "host": 1500}})
+        self.assertEqual(gaps[8]["cause"], "host_delay")
+
     def test_blame_reassembles_tokens_flushed_in_chunks(self):
         chunk = dict(type="RequestTokens", req_id="a", first=0, token_times=[100, 200], token_steps=[1, 2])
         a = dict(request("a", 0, 1000), token_times=[300, 800, 900], token_steps=[3, 4, 5], token_offset=2)

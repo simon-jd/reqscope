@@ -95,6 +95,14 @@ Time union_duration(std::vector<Interval> spans) {
 
 // A probe's copy is looked for this close to its bracket; farther means it was lost.
 constexpr Time kProbeMatchWindowNs = 50'000'000;
+// Cause rules for slow steps (docs/design.md, "Causes"): this much co-scheduled
+// prefill makes a step's slowness interference; a GPU or host component must
+// account for this share of a gap's excess to name it; baselines need this
+// many comparable steps.
+constexpr Time kInterferencePrefillTokens = 128;
+constexpr double kCauseShare = 0.5;
+constexpr std::size_t kBaselineSteps = 5;
+constexpr Time kBaselineWindow = 200;
 
 Json empty_components() {
     Json result = Json::object();
@@ -217,10 +225,172 @@ public:
         return {times, steps, valid};
     }
 
+    // A step's own GPU work. busy is the union of its GPU intervals, first and
+    // last bound them, and wait is the shortest time from a launch API's
+    // return to the start of the kernel it launched. Idle time between the
+    // step's own intervals is split by who was waiting: inner_host while the
+    // next kernel had not been launched yet, inner_gpu once it had (the GPU
+    // was running something else, or was slower).
+    struct StepGpu {
+        bool known = false, has_wait = false;
+        Time busy = 0, first = 0, last = 0, wait = 0, launch = 0, inner_gpu = 0, inner_host = 0;
+    };
+    struct Baseline {
+        std::size_t steps = 0;
+        Time busy = 0, inner_gpu = 0, wait = 0;
+    };
+
+    const StepGpu& step_gpu(const Step* step) const {
+        if (!step_gpu_built_) {
+            step_gpu_built_ = true;
+            struct Item { Time start, end, launched; };
+            std::map<const Step*, std::vector<Item>> items;
+            for (const auto& activity : activities_) {
+                if (!activity.step || !activity.record->timed) continue;
+                const auto span = activity.record->span;
+                const bool launched = activity.api && activity.api->timed;
+                items[activity.step].push_back({span.start, span.end, launched ? activity.api->span.end : 0});
+                const auto kind = str(*activity.record->data, "kind");
+                auto& gpu = step_gpu_[activity.step];
+                if (launched && (kind == "kernel" || kind == "graph")) {
+                    const Time api_end = activity.api->span.end;
+                    const Time wait = span.start > api_end ? span.start - api_end : 0;
+                    if (!gpu.has_wait || wait < gpu.wait) { gpu.wait = wait; gpu.launch = api_end; }
+                    gpu.has_wait = true;
+                }
+            }
+            for (auto& [step, list] : items) {
+                std::sort(list.begin(), list.end(), [](const Item& a, const Item& b) { return a.start < b.start; });
+                auto& gpu = step_gpu_[step];
+                gpu.known = true;
+                gpu.first = list.front().start;
+                Time cursor = list.front().end;
+                gpu.busy = list.front().end - list.front().start;
+                for (std::size_t i = 1; i < list.size(); ++i) {
+                    const auto& item = list[i];
+                    if (item.start > cursor) {
+                        const Time idle = item.start - cursor;
+                        const Time host = item.launched > cursor ? std::min(idle, item.launched - cursor) : 0;
+                        gpu.inner_host += host;
+                        gpu.inner_gpu += idle - host;
+                        gpu.busy += item.end - item.start;
+                    } else if (item.end > cursor) {
+                        gpu.busy += item.end - cursor;
+                    }
+                    cursor = std::max(cursor, item.end);
+                }
+                gpu.last = cursor;
+            }
+        }
+        static const StepGpu none;
+        const auto found = step_gpu_.find(step);
+        return found == step_gpu_.end() ? none : found->second;
+    }
+
+    // Steps are comparable when they have the same producer, member count and
+    // scheduled tokens and no prefill: in steady decoding, the same batch.
+    static std::string shape(const Step* step) {
+        Time tokens = 0;
+        for (const auto& member : step->members) {
+            if (member.phase == "prefill") return "";
+            tokens += member.tokens;
+        }
+        return step->record->producer + '|' + std::to_string(step->members.size()) + '|' + std::to_string(tokens);
+    }
+
+    // Medians over the comparable steps within kBaselineWindow step ids of
+    // this one: local, because GPU work per decode step grows as contexts
+    // grow, and wide enough that one injected burst cannot dominate it.
+    Baseline baseline(const Step* step) const {
+        if (!baselines_built_) {
+            baselines_built_ = true;
+            for (const auto& [id, candidate] : steps_) {
+                const auto key = shape(&candidate);
+                const auto& gpu = step_gpu(&candidate);
+                if (!key.empty() && gpu.known) comparable_[key].push_back(&candidate);
+            }
+            for (auto& [key, list] : comparable_)
+                std::sort(list.begin(), list.end(), [](const Step* a, const Step* b) { return a->id < b->id; });
+        }
+        const auto found = comparable_.find(shape(step));
+        if (found == comparable_.end()) return {};
+        const auto& list = found->second;
+        const Time low = step->id > kBaselineWindow ? step->id - kBaselineWindow : 0;
+        auto it = std::lower_bound(list.begin(), list.end(), low, [](const Step* a, Time id) { return a->id < id; });
+        std::vector<Time> busy, inner, wait;
+        for (; it != list.end() && (*it)->id <= step->id + kBaselineWindow; ++it) {
+            const auto& gpu = step_gpu(*it);
+            busy.push_back(gpu.busy);
+            inner.push_back(gpu.inner_gpu);
+            if (gpu.has_wait) wait.push_back(gpu.wait);
+        }
+        auto median = [](std::vector<Time>& v) {
+            if (v.empty()) return Time{0};
+            std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+            return v[v.size() / 2];
+        };
+        return Baseline{busy.size(), median(busy), median(inner), median(wait)};
+    }
+
+    // Host time of a gap [begin, end] around its producing step's GPU work:
+    // waiting inside the step for its next launch, after its GPU work
+    // finished, and before its first launch returned.
+    Time host_part(const Step* step, Time begin, Time end) const {
+        const auto& gpu = step_gpu(step);
+        if (!gpu.known) return 0;
+        const Time launched = gpu.has_wait ? gpu.launch : gpu.first;
+        return gpu.inner_host + (end > gpu.last ? end - gpu.last : 0) + (launched > begin ? launched - begin : 0);
+    }
+
+    // Why one slow gap [begin, end] was slow, from its producing step.
+    // host_base is the request's median host_part over all its gaps. Rules
+    // are in docs/design.md ("Causes").
+    Json cause(const Step* step, Time begin, Time end, Time excess, Time prefill_tokens, Time host_base) const {
+        Json evidence = Json::object({{"prefill_tokens", prefill_tokens}});
+        if (prefill_tokens >= kInterferencePrefillTokens)
+            return Json::object({{"cause", "interference"}, {"evidence", evidence}});
+        const auto& gpu = step ? step_gpu(step) : step_gpu(nullptr);
+        if (!step || !gpu.known)
+            return Json::object({{"cause", "undetermined"}, {"evidence", evidence},
+                {"reason", "no GPU records for the producing step; GPU and host delay look alike"}});
+        const auto base = baseline(step);
+        // GPU: more GPU work than in comparable steps, or more time when the
+        // step's next kernel was launched but not running, inside the step or
+        // before its first kernel (the GPU was busy elsewhere or slower).
+        Time gpu_extra = 0;
+        auto above = [](Time value, Time base) { return value > base ? value - base : Time{0}; };
+        if (base.steps >= kBaselineSteps) {
+            gpu_extra += above(gpu.busy, base.busy) + above(gpu.inner_gpu, base.inner_gpu);
+            if (gpu.has_wait) gpu_extra += above(gpu.wait, base.wait);
+        }
+        // Host: more host time around the step's GPU work than the request's
+        // gaps usually have.
+        const Time host = host_part(step, begin, end);
+        const Time host_extra = above(host, host_base);
+        evidence["gpu_busy_ns"] = gpu.busy;
+        evidence["gpu_busy_baseline_ns"] = base.busy;
+        evidence["gpu_wait_inside_ns"] = gpu.inner_gpu;
+        evidence["gpu_wait_inside_baseline_ns"] = base.inner_gpu;
+        evidence["host_wait_inside_ns"] = gpu.inner_host;
+        evidence["launch_wait_ns"] = gpu.has_wait ? Json(gpu.wait) : Json();
+        evidence["launch_wait_baseline_ns"] = base.wait;
+        evidence["host_ns"] = host;
+        evidence["host_baseline_ns"] = host_base;
+        evidence["comparable_steps"] = static_cast<Time>(base.steps);
+        evidence["gpu_extra_ns"] = gpu_extra;
+        evidence["host_extra_ns"] = host_extra;
+        const double needed = kCauseShare * static_cast<double>(excess);
+        std::string name = "unexplained";
+        if (gpu_extra >= host_extra && static_cast<double>(gpu_extra) >= needed) name = "gpu_slowdown";
+        else if (host_extra > gpu_extra && static_cast<double>(host_extra) >= needed) name = "host_delay";
+        return Json::object({{"cause", name}, {"evidence", evidence}});
+    }
+
     Json blame(const std::string& only, double slow_factor) const {
         Json rows = Json::array();
         std::map<std::string, Time> culprits;
         Time recorded_steps = 0, fallback_steps = 0;
+        std::map<std::string, Time> causes;
         for (const auto& [key, request] : requests_) {
             if (request.spans.empty()) continue;
             const Json& raw = *request.spans.front()->data;
@@ -237,6 +407,20 @@ public:
             std::vector<Time> sorted = gaps;
             std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
             const Time median = sorted[sorted.size() / 2];
+            // The request's usual host time per gap, for the cause rules.
+            Time host_base = 0;
+            if (!producers.empty()) {
+                std::map<Time, const Step*> by_id;
+                for (const auto* step : request.steps) by_id[step->id] = step;
+                std::vector<Time> hosts;
+                for (std::size_t i = 0; i < gaps.size(); ++i)
+                    if (const auto found = by_id.find(producers[i + 1]); found != by_id.end() && step_gpu(found->second).known)
+                        hosts.push_back(host_part(found->second, tokens[i], tokens[i + 1]));
+                if (!hosts.empty()) {
+                    std::nth_element(hosts.begin(), hosts.begin() + hosts.size() / 2, hosts.end());
+                    host_base = hosts[hosts.size() / 2];
+                }
+            }
             Json slow = Json::array();
             Time excess_total = 0, unexplained = 0;
             for (std::size_t i = 0; i < gaps.size(); ++i) {
@@ -247,10 +431,12 @@ public:
                 Json steps = Json::array();
                 std::map<std::string, Time> prefill;
                 Time prefill_tokens = 0;
+                const Step* producer = nullptr;
                 for (const auto* step : request.steps) {
                     const auto span = step->record->span;
                     if (!producers.empty() ? step->id != producers[i + 1] : span.end <= begin || span.end > end)
                         continue;
+                    if (!producer) producer = step;
                     std::vector<Interval> busy;
                     for (const auto* gpu : step->gpu) busy.push_back(gpu->span);
                     Json members = Json::array();
@@ -273,9 +459,12 @@ public:
                     blamed.push_back(Json::object({{"req_id", culprit}, {"prefill_tokens", count}, {"excess_ns", share}}));
                 }
                 if (prefill.empty()) unexplained += excess;
+                Json why = cause(producer, begin, end, excess, prefill_tokens, host_base);
+                ++causes[str(why, "cause")];
                 slow.push_back(Json::object({{"token_index", static_cast<Time>(i + 1)}, {"begin_ns", begin},
                     {"end_ns", end}, {"gap_ns", gaps[i]},
-                    {"excess_ns", excess}, {"steps", steps}, {"blamed", blamed}}));
+                    {"excess_ns", excess}, {"steps", steps}, {"blamed", blamed},
+                    {"cause", why["cause"]}, {"cause_evidence", why["evidence"]}}));
             }
             rows.push_back(Json::object({{"req_id", id}, {"tokens", static_cast<Time>(tokens.size())},
                 {"producing_steps", producers.empty() ? "host_span_in_gap" : "recorded"},
@@ -308,6 +497,9 @@ public:
             {"loss_count", loss_count_},
             {"requests_with_recorded_steps", recorded_steps},
             {"requests_using_host_span_fallback", fallback_steps}});
+        Json cause_counts = Json::object();
+        for (const auto& [name, count] : causes) cause_counts[name] = count;
+        summary["slow_gaps_by_cause"] = cause_counts;
         Json trace = trace_status();
         Json warnings = Json::array();
         if (fallback_steps)
@@ -533,6 +725,10 @@ private:
         }
     };
     mutable std::map<std::string, std::vector<Interval>> gpu_busy_;
+    mutable std::map<const Step*, StepGpu> step_gpu_;
+    mutable bool step_gpu_built_ = false;
+    mutable std::map<std::string, std::vector<const Step*>> comparable_;
+    mutable bool baselines_built_ = false;
     mutable std::map<std::string, TimeIndex> sync_index_;
     Json edges_ = Json::array();
     Json graph_definitions_ = Json::array();

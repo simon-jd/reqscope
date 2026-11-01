@@ -174,6 +174,41 @@ by time.
 - `warnings`: one sentence for each of the above that limits the answer;
 - the clock bound.
 
+### Causes
+
+Each slow gap also gets a `cause`, from its producing step and the gap
+`[begin, end]`, with the numbers behind it in `cause_evidence`. The rules
+are applied in order; "excess" is the gap minus the request's median gap.
+
+1. **interference**: at least 128 prefill tokens of other requests were
+   co-scheduled in the producing step.
+2. **undetermined**: the producing step has no GPU records (plugin-only
+   capture, or no linked GPU work). Without GPU time, GPU slowness and
+   host delay both look like a long gap.
+3. Otherwise two components are measured against baselines:
+   - **GPU extra**: how much the step's GPU busy time, its GPU wait inside
+     the step, and its launch wait exceed the medians of comparable steps.
+     Comparable steps have the same producer, member count and scheduled
+     tokens, no prefill, and step ids within 200 of this one (local,
+     because decode GPU work grows with context length). The GPU wait
+     inside the step is idle time between the step's own GPU intervals
+     while its next kernel had already been launched; the launch wait is
+     the shortest time from a launch API's return to its kernel's start.
+     Both grow when the GPU is running another process's work. At least 5
+     comparable steps are needed, or GPU extra is 0.
+   - **host extra**: how much the gap's host time exceeds the request's
+     median over all its gaps. Host time is idle time inside the step while
+     its next kernel had not been launched yet, time after the step's GPU
+     work finished until the token was processed, and time from the gap's
+     start until the step's first launch returned.
+4. **gpu_slowdown** if GPU extra is at least host extra and at least half
+   the excess; **host_delay** if host extra is larger and at least half the
+   excess; **unexplained** otherwise.
+
+The rules do not separate a host-device synchronization stall from other
+host delay: both appear as host time around the step's GPU work. A long
+copy on the step's own streams counts as GPU work of the step.
+
 **`analyze` / `explain`** split each request's wall time into
 `gpu_exec`, `gpu_idle_in_step`, `between_steps`, `between_steps_cpu` (with
 scheduler evidence), `not_scheduled` and `residual`. GPU intervals are
