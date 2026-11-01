@@ -342,6 +342,37 @@ public:
         return gpu.inner_host + (end > gpu.last ? end - gpu.last : 0) + (launched > begin ? launched - begin : 0);
     }
 
+    // The collector's own busy time inside [begin, end] in the step's process:
+    // the writer's busy intervals (CollectorActivity) and the clock probe's
+    // brackets. Absent (nullopt) when the capture records no writer activity.
+    std::optional<Time> collector_active(const Step* step, Time begin, Time end) const {
+        if (!collector_busy_built_) {
+            collector_busy_built_ = true;
+            std::map<std::string, std::vector<Interval>> spans;
+            std::set<std::string> with_writer;
+            for (const auto& record : records_) {
+                if (record.ambiguous) continue;
+                if (record.type == "CollectorActivity" && record.timed) {
+                    spans[record.producer].push_back(record.span);
+                    with_writer.insert(record.producer);
+                } else if (record.type == "ClockProbe") {
+                    const auto t0 = number(*record.data, "t0"), t1 = number(*record.data, "t1");
+                    if (t0 && t1 && *t1 > *t0) spans[record.producer].push_back({*t0, *t1});
+                }
+            }
+            for (auto& [producer, list] : spans)
+                if (with_writer.contains(producer)) collector_busy_[producer] = unite(std::move(list));
+        }
+        const auto found = collector_busy_.find(step->record->producer);
+        if (found == collector_busy_.end()) return std::nullopt;
+        const auto& list = found->second;
+        Time total = 0;
+        auto it = std::lower_bound(list.begin(), list.end(), begin, [](const Interval& a, Time t) { return a.end <= t; });
+        for (; it != list.end() && it->start < end; ++it)
+            total += std::min(end, it->end) - std::max(begin, it->start);
+        return total;
+    }
+
     // Why one slow gap [begin, end] was slow, from its producing step.
     // host_base is the request's median host_part over all its gaps. Rules
     // are in docs/design.md ("Causes").
@@ -383,13 +414,21 @@ public:
         std::string name = "unexplained";
         if (gpu_extra >= host_extra && static_cast<double>(gpu_extra) >= needed) name = "gpu_slowdown";
         else if (host_extra > gpu_extra && static_cast<double>(host_extra) >= needed) name = "host_delay";
-        return Json::object({{"cause", name}, {"evidence", evidence}});
+        Json result = Json::object({{"cause", name}, {"evidence", evidence}});
+        // A host delay no longer than the time the collector itself was busy
+        // in the gap may be the profiler's own doing (docs/design.md, "Causes").
+        if (const auto active = collector_active(step, begin, end)) {
+            result["evidence"]["collector_active_ns"] = *active;
+            if (name == "host_delay" && static_cast<double>(*active) >= kCauseShare * static_cast<double>(host_extra))
+                result["flags"] = Json::array({"collector_active"});
+        }
+        return result;
     }
 
     Json blame(const std::string& only, double slow_factor) const {
         Json rows = Json::array();
         std::map<std::string, Time> culprits;
-        Time recorded_steps = 0, fallback_steps = 0;
+        Time recorded_steps = 0, fallback_steps = 0, flagged_host_delays = 0;
         std::map<std::string, Time> causes;
         for (const auto& [key, request] : requests_) {
             if (request.spans.empty()) continue;
@@ -461,10 +500,15 @@ public:
                 if (prefill.empty()) unexplained += excess;
                 Json why = cause(producer, begin, end, excess, prefill_tokens, host_base);
                 ++causes[str(why, "cause")];
-                slow.push_back(Json::object({{"token_index", static_cast<Time>(i + 1)}, {"begin_ns", begin},
+                Json gap = Json::object({{"token_index", static_cast<Time>(i + 1)}, {"begin_ns", begin},
                     {"end_ns", end}, {"gap_ns", gaps[i]},
                     {"excess_ns", excess}, {"steps", steps}, {"blamed", blamed},
-                    {"cause", why["cause"]}, {"cause_evidence", why["evidence"]}}));
+                    {"cause", why["cause"]}, {"cause_evidence", why["evidence"]}});
+                if (why.contains("flags")) {
+                    gap["flags"] = why["flags"];
+                    ++flagged_host_delays;
+                }
+                slow.push_back(std::move(gap));
             }
             rows.push_back(Json::object({{"req_id", id}, {"tokens", static_cast<Time>(tokens.size())},
                 {"producing_steps", producers.empty() ? "host_span_in_gap" : "recorded"},
@@ -500,6 +544,7 @@ public:
         Json cause_counts = Json::object();
         for (const auto& [name, count] : causes) cause_counts[name] = count;
         summary["slow_gaps_by_cause"] = cause_counts;
+        summary["host_delay_gaps_with_collector_active"] = flagged_host_delays;
         Json trace = trace_status();
         Json warnings = Json::array();
         if (fallback_steps)
@@ -726,6 +771,8 @@ private:
     };
     mutable std::map<std::string, std::vector<Interval>> gpu_busy_;
     mutable std::map<const Step*, StepGpu> step_gpu_;
+    mutable std::map<std::string, std::vector<Interval>> collector_busy_;
+    mutable bool collector_busy_built_ = false;
     mutable bool step_gpu_built_ = false;
     mutable std::map<std::string, std::vector<const Step*>> comparable_;
     mutable bool baselines_built_ = false;

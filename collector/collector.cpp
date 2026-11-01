@@ -330,6 +330,22 @@ public:
                 {"observed_time_range", Json::array({first ? first : last, last})}, {"range_known", false}}));
         }
     }
+    // The writer's busy intervals, from its first record after a sleep to the
+    // next sleep: when the collector's own thread was taking a CPU. Shorter
+    // ones (a plugin record or two) are only counted in CollectorStats.
+    static constexpr uint64_t min_burst_ns = 200000;
+    uint64_t burst_begin = 0, burst_records = 0, short_bursts = 0;
+    void end_burst() {
+        const auto end = monotonic_ns();
+        if (end - burst_begin >= min_burst_ns) {
+            emit(Json::object({{"type", "CollectorActivity"}, {"thread", "writer"}, {"start", burst_begin},
+                {"end", end}, {"cupti_records",
+                    self_stats().cupti_records.load(std::memory_order_relaxed) - burst_records}}), false);
+        } else {
+            ++short_bursts;
+        }
+        burst_begin = 0;
+    }
     // Cumulative totals since the collector started; a reader takes deltas.
     void report_stats() {
         auto& stats = self_stats();
@@ -346,6 +362,7 @@ public:
             {"cupti_records", stats.cupti_records.load(std::memory_order_relaxed)},
             {"cupti_bytes", stats.cupti_bytes.load(std::memory_order_relaxed)},
             {"writer_cpu_ns", thread_cpu_ns()}, {"writer_sleep_ns", writer_sleep_ns},
+            {"writer_short_bursts", short_bursts},
             {"probe_cpu_ns", stats.probe_cpu_ns.load(std::memory_order_relaxed)},
             {"since_ns", started_ns}}), false);
         last_stats = monotonic_ns();
@@ -468,7 +485,12 @@ public:
             while (!stopping.load()) {
                 unsigned budget = 512;
                 bool work = false;
+                const auto pass_begin = monotonic_ns();
                 while (budget-- && drain_one()) work = true;
+                if (work && !burst_begin) {
+                    burst_begin = pass_begin;
+                    burst_records = self_stats().cupti_records.load(std::memory_order_relaxed);
+                }
                 report_losses();
                 automatic_snapshot();
                 if (writer && (segment_bytes >= target_segment_bytes || monotonic_ns() - current.begin >= 1000000000ULL)) {
@@ -486,6 +508,7 @@ public:
                 serve_control();
                 if (received_signal.load()) { stopping.store(true); break; }
                 if (!work) {
+                    if (burst_begin) end_burst();
                     const auto slept = monotonic_ns();
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));
                     writer_sleep_ns += monotonic_ns() - slept;

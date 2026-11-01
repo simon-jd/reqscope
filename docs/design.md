@@ -207,6 +207,15 @@ are applied in order; "excess" is the gap minus the request's median gap.
    previous step also lengthens this step's launch wait), so GPU extra can
    exceed the excess; the components are compared, not added up to the gap.
 
+A host delay can be the profiler's own. When the capture records the
+writer's busy intervals (`CollectorActivity`), each slow gap's evidence has
+`collector_active_ns`, the time inside the gap when the writer was busy or
+the clock probe was bracketing a copy, and a host-delay verdict gets the
+flag `collector_active` when that time is at least half its host extra.
+The flag says the collector was busy for as long as the delay, not that it
+caused it. `blame`'s summary counts flagged host delays
+(`host_delay_gaps_with_collector_active`).
+
 The rules do not separate a host-device synchronization stall from other
 host delay: both appear as host time around the step's GPU work. A long
 copy on the step's own streams counts as GPU work of the step.

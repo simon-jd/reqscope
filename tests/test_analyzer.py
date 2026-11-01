@@ -187,7 +187,7 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
         self.assertEqual(report["trace"]["issues_by_reason"], {"collector_failed": 1})
         self.assertEqual(report["trace"]["issues"][0]["detail"], "segment write failed")
 
-    def decode_trace(self, name, events, with_gpu=True):
+    def decode_trace(self, name, events, with_gpu=True, extra=()):
         """30 decode steps of request "a", one token every 2,000 ns; events[k] changes step k.
 
         gpu: extra kernel time; host: extra host time after the kernel;
@@ -217,6 +217,7 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
         rows.append(dict(request("a", 0, t), token_times=times, token_steps=steps_of_tokens))
         if not with_gpu:
             rows = [r for r in rows if r["type"] != "GpuActivity"]
+        rows += list(extra)
         report = json.loads(self.cli("blame", write_segment(self.root / name, rows)).stdout)
         [row] = [r for r in report["requests"] if r["req_id"] == "a"]
         return {gap["steps"][0]["step_id"]: gap for gap in row["slow_gaps"]}, report
@@ -235,6 +236,29 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
         self.assertEqual(gaps[12]["cause_evidence"]["host_extra_ns"], 3000)  # over the usual 905 ns
         self.assertEqual(report["summary"]["slow_gaps_by_cause"],
                          {"gpu_slowdown": 2, "host_delay": 2, "interference": 1})
+
+    def test_host_delay_while_the_collector_was_busy_is_flagged(self):
+        events = {8: {"gpu": 2000}, 12: {"host": 3000}}
+        gaps, report = self.decode_trace("quiet.rqs", events)
+        self.assertNotIn("collector_active_ns", gaps[12]["cause_evidence"])  # no writer activity recorded
+        self.assertNotIn("flags", gaps[12])
+        begin, end = gaps[12]["begin_ns"], gaps[12]["end_ns"]
+
+        def activity(start, stop):
+            return dict(type="CollectorActivity", thread="writer", start=start, end=stop, cupti_records=10)
+        # Busy for the whole gap, and during step 8's GPU slowdown.
+        busy = [activity(begin - 100, end + 100), activity(gaps[8]["begin_ns"], gaps[8]["end_ns"])]
+        gaps, report = self.decode_trace("busy.rqs", events, extra=busy)
+        self.assertEqual(gaps[12]["cause"], "host_delay")
+        self.assertEqual(gaps[12]["cause_evidence"]["collector_active_ns"], end - begin)
+        self.assertEqual(gaps[12]["flags"], ["collector_active"])
+        self.assertNotIn("flags", gaps[8])  # only host delays are flagged
+        self.assertEqual(report["summary"]["host_delay_gaps_with_collector_active"], 1)
+        # Busy for less than half of the host extra (3,000 ns): not flagged.
+        gaps, report = self.decode_trace("brief.rqs", events, extra=[activity(begin, begin + 1400)])
+        self.assertEqual(gaps[12]["cause_evidence"]["collector_active_ns"], 1400)
+        self.assertNotIn("flags", gaps[12])
+        self.assertEqual(report["summary"]["host_delay_gaps_with_collector_active"], 0)
 
     def test_without_gpu_records_only_interference_is_named(self):
         gaps, _ = self.decode_trace("plugin.rqs", {8: {"gpu": 2000}, 12: {"host": 3000},

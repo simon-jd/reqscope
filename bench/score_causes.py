@@ -17,7 +17,10 @@ Per run and summed per collector mode:
   (excluding the run's own slow steps);
 - per cause: the share of injected events with at least one step given the
   right cause;
-- per run, the host's mean 1-minute load average during the run.
+- per run, the host's mean 1-minute load average during the run;
+- host-delay verdicts that blame flagged "collector_active" (the
+  collector was busy for at least half of the host extra), by true cause,
+  and host-delay precision over the verdicts that were not flagged.
 """
 from __future__ import annotations
 
@@ -43,8 +46,10 @@ def steps_of(blame: dict) -> dict[int, dict]:
             if not gap["steps"]:
                 continue
             entry = steps.setdefault(gap["steps"][0]["step_id"],
-                                     {"begin": gap["begin_ns"], "end": gap["end_ns"], "causes": Counter()})
+                                     {"begin": gap["begin_ns"], "end": gap["end_ns"], "causes": Counter(),
+                                      "flagged": False})
             entry["causes"][gap["cause"]] += 1
+            entry["flagged"] |= "collector_active" in gap.get("flags", [])
     return steps
 
 
@@ -61,7 +66,7 @@ def ratio(a: int, b: int) -> float | None:
     return round(a / b, 3) if b else None
 
 
-def metrics(confusion: Counter, detected: Counter, injected: Counter) -> dict:
+def metrics(confusion: Counter, detected: Counter, injected: Counter, flagged: Counter) -> dict:
     per_cause = {}
     for cause in CAUSES:
         true = sum(n for (t, _), n in confusion.items() if t == cause)
@@ -72,7 +77,14 @@ def metrics(confusion: Counter, detected: Counter, injected: Counter) -> dict:
                             "precision": ratio(right, given), "precision_inside_windows": ratio(right, given_inside),
                             "events": injected[cause], "events_detected": detected[cause]}
     matrix = {t: {p: confusion[(t, p)] for p in PREDICTED} for t in CAUSES + ["none"]}
-    return {"per_cause": per_cause, "confusion": matrix}
+    given = sum(n for (_, p), n in confusion.items() if p == "host_delay")
+    unflagged_right = confusion[("host_delay", "host_delay")] - flagged[("host_delay", "host_delay")]
+    unflagged = given - sum(n for (_, p), n in flagged.items() if p == "host_delay")
+    flags = {"host_delay_flagged_by_true_cause": {t: flagged[(t, "host_delay")] for t in CAUSES + ["none"]},
+             "host_delay_precision_unflagged": ratio(unflagged_right, unflagged),
+             "host_delay_recall_unflagged": ratio(unflagged_right, sum(n for (t, _), n in confusion.items()
+                                                                        if t == "host_delay"))}
+    return {"per_cause": per_cause, "confusion": matrix, "collector_active_flags": flags}
 
 
 def score(run: Path) -> tuple[dict, Counter, Counter, Counter]:
@@ -83,11 +95,13 @@ def score(run: Path) -> tuple[dict, Counter, Counter, Counter]:
     blame = json.loads(blame_path.read_text())
     events = client["results"]["events"]
     confusion, detected, injected = Counter(), Counter(), Counter(e["cause"] for e in events)
+    flagged = Counter()
     hits = defaultdict(set)
     for step in steps_of(blame).values():
         cause, index = truth(step, events)
         predicted = step["causes"].most_common(1)[0][0]
         confusion[(cause, predicted)] += 1
+        flagged[(cause, predicted)] += step["flagged"]
         if index is not None and predicted == cause:
             hits[cause].add(index)
     for cause, found in hits.items():
@@ -95,21 +109,22 @@ def score(run: Path) -> tuple[dict, Counter, Counter, Counter]:
     result = {"run": run.name, "mode": client["mode"], "seed": client["results"]["seed"],
               "load1_mean": mean_load(client.get("loadavg", []), client["started_ns"], client["ended_ns"]),
               "slow_steps": sum(confusion.values()), "trace_status": blame.get("trace", {}).get("status"),
-              **metrics(confusion, detected, injected)}
-    return result, confusion, detected, injected
+              **metrics(confusion, detected, injected, flagged)}
+    return result, confusion, detected, injected, flagged
 
 
 def main() -> None:
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    runs, totals = [], defaultdict(lambda: [Counter(), Counter(), Counter(), []])
+    runs, totals = [], defaultdict(lambda: [Counter(), Counter(), Counter(), Counter(), []])
     for path in sys.argv[1:]:
-        result, confusion, detected, injected = score(Path(path))
+        result, confusion, detected, injected, flagged = score(Path(path))
         runs.append(result)
         total = totals[result["mode"]]
-        total[0].update(confusion); total[1].update(detected); total[2].update(injected); total[3].append(result["seed"])
-    by_mode = {mode: {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i)}
-               for mode, (c, d, i, seeds) in totals.items()}
+        total[0].update(confusion); total[1].update(detected); total[2].update(injected); total[3].update(flagged)
+        total[4].append(result["seed"])
+    by_mode = {mode: {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i, f)}
+               for mode, (c, d, i, f, seeds) in totals.items()}
     print(json.dumps({"by_mode": by_mode, "runs": runs}, indent=2))
 
 
