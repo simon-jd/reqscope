@@ -2,6 +2,7 @@
 #include "collector/clock_probe.hpp"
 #include "collector/record_text.hpp"
 #include "collector/self_stats.hpp"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -328,6 +329,33 @@ BackendInfo backend_start(const std::string& mode) {
     if (result != CUPTI_SUCCESS) return fail("cuptiSetThreadIdType SYSTEM (SYS_gettid)", result);
     result = cuptiActivityRegisterCallbacks(requested, completed);
     if (result != CUPTI_SUCCESS) return fail("cuptiActivityRegisterCallbacks", result);
+    // CUPTI's device buffers hold GPU timestamps until its worker thread
+    // turns them into activity records. With the default 3.2 MB buffer
+    // (about 100,000 records, a few hundred decode steps), moving to the next
+    // one stalled the launching thread for 1-2 ms: bench/launch_cost.py saw
+    // 21 such stalls in 5,000 steps, and 1 with 32 MB buffers. Four are
+    // allocated up front so that none is allocated inside a launch.
+    // REQSCOPE_CUPTI_DEVICE_BUFFER_MB (1-1024) changes the size.
+    {
+        size_t megabytes = 32;
+        if (const char* value = std::getenv("REQSCOPE_CUPTI_DEVICE_BUFFER_MB")) {
+            char* end = nullptr;
+            megabytes = std::strtoull(value, &end, 10);
+            if (end == value || *end != '\0' || !megabytes || megabytes > 1024)
+                return fail("REQSCOPE_CUPTI_DEVICE_BUFFER_MB must be an integer in [1, 1024]",
+                            CUPTI_ERROR_INVALID_PARAMETER);
+        }
+        size_t bytes = megabytes << 20, preallocated = 4, size = sizeof(size_t);
+        // CUPTI requires fewer preallocated buffers than the pool limit.
+        if (const char* limit = std::getenv("REQSCOPE_CUPTI_DEVICE_BUFFERS"))
+            preallocated = std::min<size_t>(preallocated, std::max<size_t>(std::strtoull(limit, nullptr, 10), 1) - 1);
+        result = cuptiActivitySetAttribute(CUPTI_ACTIVITY_ATTR_DEVICE_BUFFER_SIZE, &size, &bytes);
+        if (result != CUPTI_SUCCESS) return fail("CUPTI device buffer size", result);
+        result = cuptiActivitySetAttribute(CUPTI_ACTIVITY_ATTR_DEVICE_BUFFER_PRE_ALLOCATE_VALUE, &size, &preallocated);
+        if (result != CUPTI_SUCCESS) return fail("CUPTI device buffer preallocation", result);
+        info.device_buffer_bytes = bytes;
+        info.device_buffers_preallocated = preallocated;
+    }
     // CUPTI collects GPU timestamps into a pool of device buffers per context
     // (default limit 250, allocated on demand). A small pool cannot keep up
     // with vLLM's launch rate: with 4 buffers, 14% of kernel records and most

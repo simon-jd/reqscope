@@ -202,6 +202,8 @@ public:
         header["libcupti_version"] = uint64_t(backend.version);
         header["cupti_host_buffer_count"] = backend.host_buffer_count;
         header["cupti_host_buffer_bytes"] = backend.host_buffer_bytes;
+        header["cupti_device_buffer_bytes"] = backend.device_buffer_bytes;
+        header["cupti_device_buffers_preallocated"] = backend.device_buffers_preallocated;
         header["graph_resource_callbacks"] = backend.graph_resources;
         header["api_capture_policy"] = backend.api_capture_policy;
         header["api_capture_apis"] = backend.api_capture_apis;

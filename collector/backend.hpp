@@ -29,6 +29,7 @@ struct BackendInfo {
     Json api_capture_apis = Json::array({});
     uint32_t version = 0;
     uint64_t host_buffer_count = 0, host_buffer_bytes = 0;
+    uint64_t device_buffer_bytes = 0, device_buffers_preallocated = 0;
     bool active = false, v2_symbols = false, graph_resources = false;
 };
 BackendInfo backend_start(const std::string& mode);
