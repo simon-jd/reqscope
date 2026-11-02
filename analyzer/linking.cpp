@@ -111,12 +111,13 @@ void Analyzer::link() {
             auto& step = *activity.step;
             step.gpu.push_back(&record);
             double total_tokens = 0;
-            for (const auto& member : step.members) total_tokens += static_cast<double>(member.tokens);
+            for (const auto& member : step.members) total_tokens += static_cast<double>(member.tokens.count());
             for (const auto& member : step.members) {
                 auto& target = request({record.producer, member.request});
                 target.gpu.push_back(&record);
                 if (total_tokens > 0 && reliable(record))
-                    target.share += static_cast<double>(record.span.end - record.span.start) * member.tokens / total_tokens;
+                    target.share += static_cast<double>(record.span.end - record.span.start) *
+                                    static_cast<double>(member.tokens.count()) / total_tokens;
                 else
                     target.share_known = false;
             }

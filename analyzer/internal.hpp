@@ -15,6 +15,7 @@
 #include "analyzer/analyzer.hpp"
 
 #include <array>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -25,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -33,6 +35,26 @@ namespace reqscope::detail {
 using Time = std::uint64_t;
 using Key = std::pair<std::string, std::uint64_t>;
 using RequestKey = std::pair<std::string, std::string>;
+
+// A count of tokens: scheduled for a request in a step, co-scheduled prefill,
+// in a prompt, or generated. Its own type because Time is also an unsigned
+// 64-bit integer: a time or duration cannot be passed where tokens are
+// expected, or the reverse, and Json takes only count().
+class Tokens {
+public:
+    constexpr Tokens() = default;
+    constexpr explicit Tokens(std::uint64_t count) : count_(count) {}
+    constexpr std::uint64_t count() const { return count_; }
+    constexpr Tokens& operator+=(Tokens other) {
+        count_ += other.count_;
+        return *this;
+    }
+    friend constexpr auto operator<=>(const Tokens&, const Tokens&) = default;
+
+private:
+    std::uint64_t count_ = 0;
+};
+static_assert(!std::is_convertible_v<Time, Tokens> && !std::is_convertible_v<Tokens, Time>);
 inline constexpr std::array<const char*, 6> kComponents{
     "gpu_exec", "gpu_idle_in_step", "between_steps_cpu", "between_steps", "not_scheduled", "residual"};
 
@@ -53,6 +75,11 @@ inline std::optional<Time> number(const Json& value, const std::string& key) {
 
 inline Time num(const Json& value, const std::string& key, Time fallback = 0) {
     return number(value, key).value_or(fallback);
+}
+
+inline std::optional<Tokens> tokens_field(const Json& value, const std::string& key) {
+    if (const auto count = number(value, key)) return Tokens{*count};
+    return std::nullopt;
 }
 
 inline bool flag(const Json& value, const std::string& key, bool fallback = false) {
@@ -100,7 +127,7 @@ struct Loss {
 
 struct Member {
     std::string request;
-    Time tokens = 0;
+    Tokens tokens;
     std::string phase;
 };
 
@@ -260,7 +287,7 @@ private:
     Baseline baseline(const Step* step) const;
     Time host_part(const Step* step, Time begin, Time end) const;
     std::optional<Time> collector_active(const Step* step, Time begin, Time end) const;
-    Json cause(const Step* step, Time begin, Time end, Time excess, Time prefill_tokens, Time host_base) const;
+    Json cause(const Step* step, Time begin, Time end, Time excess, Tokens prefill_tokens, Time host_base) const;
 
     // report.cpp
     std::string data_kind() const;

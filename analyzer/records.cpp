@@ -205,7 +205,7 @@ void Analyzer::build_indices() {
                 diagnostic("invalid_or_duplicate_step_member", &record);
                 continue;
             }
-            step.members.push_back({id, num(member, "tokens"), str(member, "phase", "unknown")});
+            step.members.push_back({id, tokens_field(member, "tokens").value_or(Tokens{}), str(member, "phase", "unknown")});
         }
     }
     for (auto& [key, step] : steps_) {

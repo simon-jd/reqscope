@@ -11,7 +11,7 @@ namespace {
 // prefill makes a step's slowness interference; a GPU or host component must
 // account for this share of a gap's excess to name it; baselines need this
 // many comparable steps.
-constexpr Time kInterferencePrefillTokens = 128;
+constexpr Tokens kInterferencePrefillTokens{128};
 constexpr double kCauseShare = 0.5;
 constexpr std::size_t kBaselineSteps = 5;
 constexpr Time kBaselineWindow = 200;
@@ -68,12 +68,12 @@ const Analyzer::StepGpu& Analyzer::step_gpu(const Step* step) const {
 // Steps are comparable when they have the same producer, member count and
 // scheduled tokens and no prefill: in steady decoding, the same batch.
 std::string Analyzer::shape(const Step* step) {
-    Time tokens = 0;
+    Tokens tokens;
     for (const auto& member : step->members) {
         if (member.phase == "prefill") return "";
         tokens += member.tokens;
     }
-    return step->record->producer + '|' + std::to_string(step->members.size()) + '|' + std::to_string(tokens);
+    return step->record->producer + '|' + std::to_string(step->members.size()) + '|' + std::to_string(tokens.count());
 }
 
 // Medians over the comparable steps within kBaselineWindow step ids of
@@ -154,8 +154,8 @@ std::optional<Time> Analyzer::collector_active(const Step* step, Time begin, Tim
 // Why one slow gap [begin, end] was slow, from its producing step.
 // host_base is the request's median host_part over all its gaps. Rules
 // are in docs/design.md ("Causes").
-Json Analyzer::cause(const Step* step, Time begin, Time end, Time excess, Time prefill_tokens, Time host_base) const {
-    Json evidence = Json::object({{"prefill_tokens", prefill_tokens}});
+Json Analyzer::cause(const Step* step, Time begin, Time end, Time excess, Tokens prefill_tokens, Time host_base) const {
+    Json evidence = Json::object({{"prefill_tokens", prefill_tokens.count()}});
     if (prefill_tokens >= kInterferencePrefillTokens)
         return Json::object({{"cause", "interference"}, {"evidence", evidence}});
     const auto& gpu = step ? step_gpu(step) : step_gpu(nullptr);
@@ -223,11 +223,11 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
         // producers[k] is the step that produced token k. Without it, fall
         // back to the request's steps whose host span ended inside the gap,
         // which is off by one step under async scheduling.
-        const auto [tokens, producers, tokens_valid] = token_series(raw);
-        if (!tokens_valid || tokens.size() < 3 || !std::is_sorted(tokens.begin(), tokens.end())) continue;
+        const auto [token_times, producers, times_valid] = token_series(raw);
+        if (!times_valid || token_times.size() < 3 || !std::is_sorted(token_times.begin(), token_times.end())) continue;
         ++(producers.empty() ? fallback_steps : recorded_steps);
         std::vector<Time> gaps;
-        for (std::size_t i = 1; i < tokens.size(); ++i) gaps.push_back(tokens[i] - tokens[i - 1]);
+        for (std::size_t i = 1; i < token_times.size(); ++i) gaps.push_back(token_times[i] - token_times[i - 1]);
         std::vector<Time> sorted = gaps;
         std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
         const Time median = sorted[sorted.size() / 2];
@@ -239,7 +239,7 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
             std::vector<Time> hosts;
             for (std::size_t i = 0; i < gaps.size(); ++i)
                 if (const auto found = by_id.find(producers[i + 1]); found != by_id.end() && step_gpu(found->second).known)
-                    hosts.push_back(host_part(found->second, tokens[i], tokens[i + 1]));
+                    hosts.push_back(host_part(found->second, token_times[i], token_times[i + 1]));
             if (!hosts.empty()) {
                 std::nth_element(hosts.begin(), hosts.begin() + hosts.size() / 2, hosts.end());
                 host_base = hosts[hosts.size() / 2];
@@ -249,12 +249,12 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
         Time excess_total = 0, unexplained = 0;
         for (std::size_t i = 0; i < gaps.size(); ++i) {
             if (static_cast<double>(gaps[i]) <= slow_factor * static_cast<double>(median)) continue;
-            const Time begin = tokens[i], end = tokens[i + 1], excess = gaps[i] - median;
+            const Time begin = token_times[i], end = token_times[i + 1], excess = gaps[i] - median;
             excess_total += excess;
             // Steps of this request that ran inside the gap produced the token.
             Json steps = Json::array();
-            std::map<std::string, Time> prefill;
-            Time prefill_tokens = 0;
+            std::map<std::string, Tokens> prefill;
+            Tokens prefill_tokens;
             const Step* producer = nullptr;
             for (const auto* step : request.steps) {
                 const auto span = step->record->span;
@@ -267,7 +267,7 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
                 for (const auto& member : step->members) {
                     if (member.request == key.second) continue;
                     members.push_back(Json::object({{"req_id", member.request}, {"phase", member.phase},
-                                                    {"tokens", member.tokens}}));
+                                                    {"tokens", member.tokens.count()}}));
                     if (member.phase == "prefill") {
                         prefill[member.request] += member.tokens;
                         prefill_tokens += member.tokens;
@@ -277,10 +277,11 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
                     {"gpu_busy_ns", union_duration(busy)}, {"co_scheduled", members}}));
             }
             Json blamed = Json::array();
-            for (const auto& [culprit, count] : prefill) {
-                const Time share = static_cast<Time>(static_cast<double>(excess) * count / prefill_tokens);
+            for (const auto& [culprit, tokens] : prefill) {
+                const Time share = static_cast<Time>(static_cast<double>(excess) * static_cast<double>(tokens.count()) /
+                                                   static_cast<double>(prefill_tokens.count()));
                 culprits[culprit] += share;
-                blamed.push_back(Json::object({{"req_id", culprit}, {"prefill_tokens", count}, {"excess_ns", share}}));
+                blamed.push_back(Json::object({{"req_id", culprit}, {"prefill_tokens", tokens.count()}, {"excess_ns", share}}));
             }
             if (prefill.empty()) unexplained += excess;
             Json why = cause(producer, begin, end, excess, prefill_tokens, host_base);
@@ -295,7 +296,7 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
             }
             slow.push_back(std::move(gap));
         }
-        rows.push_back(Json::object({{"req_id", id}, {"tokens", static_cast<Time>(tokens.size())},
+        rows.push_back(Json::object({{"req_id", id}, {"tokens", Tokens{token_times.size()}.count()},
             {"producing_steps", producers.empty() ? "host_span_in_gap" : "recorded"},
             {"median_gap_ns", median}, {"slow_gaps", slow}, {"excess_ns", excess_total},
             {"unexplained_ns", unexplained}}));

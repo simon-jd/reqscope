@@ -63,7 +63,7 @@ Json Analyzer::request_row(const Request& request, RequestScan& scan) const {
         }
         for (const auto& member : step->members)
             if (member.request == id)
-                phases.push_back(Json::object({{"step_id", step->id}, {"tokens", member.tokens}, {"phase", member.phase}}));
+                phases.push_back(Json::object({{"step_id", step->id}, {"tokens", member.tokens.count()}, {"phase", member.phase}}));
     }
     for (const auto* gpu : request.gpu) {
         gpu_ids.insert(gpu->id);
@@ -380,11 +380,11 @@ Json Analyzer::token_intervals(const std::vector<Time>& token_times, const std::
 std::string Analyzer::prompt_bucket(const Json& request) {
     const auto explicit_bucket = str(request, "prompt_bucket");
     if (!explicit_bucket.empty()) return explicit_bucket;
-    const auto tokens = number(request, "prompt_tokens");
+    const auto tokens = tokens_field(request, "prompt_tokens");
     if (!tokens) return "unknown";
-    if (*tokens <= 128) return "0-128";
-    if (*tokens <= 512) return "129-512";
-    if (*tokens <= 2048) return "513-2048";
+    if (*tokens <= Tokens{128}) return "0-128";
+    if (*tokens <= Tokens{512}) return "129-512";
+    if (*tokens <= Tokens{2048}) return "513-2048";
     return "2049+";
 }
 
