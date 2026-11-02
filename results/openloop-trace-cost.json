@@ -1,0 +1,378 @@
+[
+ {
+  "run": "openloop-before-trace-r1",
+  "mode": "trace",
+  "collector_env": {},
+  "load1_mean": 2.57,
+  "window_s": 85.7,
+  "latency": {
+   "output_tokens_per_s": 967.3,
+   "ttft_p50_ms": 22.55,
+   "ttft_p99_ms": 34.74,
+   "tpot_p50_ms": 5.19,
+   "tpot_p99_ms": 5.54
+  },
+  "collector": null,
+  "threads": {
+   "engine": {
+    "cpu": 0.331,
+    "wait": 0.0004,
+    "involuntary": 6.6,
+    "ecore": 0.037
+   },
+   "VLLM::EngineCor": {
+    "cpu": 0.468,
+    "wait": 0.0001,
+    "involuntary": 6.6,
+    "ecore": 0.043
+   },
+   "VLLM::EngineCor#2": {
+    "cpu": 0.283,
+    "wait": 0.0003,
+    "involuntary": 7.3,
+    "ecore": 0.059
+   },
+   "VLLM::EngineCor#3": {
+    "cpu": 0.009,
+    "wait": 0.0001,
+    "involuntary": 0.8,
+    "ecore": 0.442
+   },
+   "other": {
+    "cpu": 0.016,
+    "wait": 0.0003,
+    "involuntary": 1.6,
+    "ecore": null
+   }
+  },
+  "apis": {
+   "cuLaunchKernel": {
+    "calls": 185354,
+    "p50_us": 1.8,
+    "p90_us": 4.4,
+    "p99_us": 254.2,
+    "max_us": 1065.9,
+    "total_s": 3.005
+   },
+   "cuLaunchKernelEx": {
+    "calls": 125156,
+    "p50_us": 3.9,
+    "p90_us": 233.9,
+    "p99_us": 275.0,
+    "max_us": 7355.9,
+    "total_s": 7.837
+   },
+   "cuMemcpyHtoDAsync": {
+    "calls": 171,
+    "p50_us": 11.9,
+    "p90_us": 39.9,
+    "p99_us": 248.9,
+    "max_us": 287.7,
+    "total_s": 0.004
+   },
+   "cuStreamSynchronize": {
+    "calls": 171,
+    "p50_us": 7.3,
+    "p90_us": 19.3,
+    "p99_us": 23.0,
+    "max_us": 28.6,
+    "total_s": 0.002
+   },
+   "cudaEventRecordWithFlags": {
+    "calls": 94676,
+    "p50_us": 1.6,
+    "p90_us": 250.1,
+    "p99_us": 288.0,
+    "max_us": 2069.2,
+    "total_s": 3.435
+   },
+   "cudaEventSynchronize": {
+    "calls": 14364,
+    "p50_us": 413.5,
+    "p90_us": 3616.5,
+    "p99_us": 7591.5,
+    "max_us": 21488.7,
+    "total_s": 20.651
+   },
+   "cudaGraphLaunch": {
+    "calls": 13488,
+    "p50_us": 263.1,
+    "p90_us": 421.0,
+    "p99_us": 650.4,
+    "max_us": 3913.0,
+    "total_s": 3.998
+   },
+   "cudaLaunchKernel": {
+    "calls": 230985,
+    "p50_us": 3.6,
+    "p90_us": 247.1,
+    "p99_us": 310.3,
+    "max_us": 10132.6,
+    "total_s": 14.027
+   },
+   "cudaMemcpyAsync": {
+    "calls": 65948,
+    "p50_us": 6.0,
+    "p90_us": 210.5,
+    "p99_us": 249.6,
+    "max_us": 2279.4,
+    "total_s": 2.104
+   },
+   "cudaMemsetAsync": {
+    "calls": 50148,
+    "p50_us": 1.7,
+    "p90_us": 3.0,
+    "p99_us": 245.9,
+    "max_us": 532.9,
+    "total_s": 0.439
+   },
+   "cudaStreamWaitEvent": {
+    "calls": 14364,
+    "p50_us": 1.7,
+    "p90_us": 2.8,
+    "p99_us": 4.5,
+    "max_us": 41.0,
+    "total_s": 0.028
+   }
+  },
+  "slow_launches": {
+   "launches": 607614,
+   "over_100us": 104247,
+   "in_runs_of_3_or_more": 101081,
+   "longest_run": 48,
+   "extra_s": 25.081,
+   "slow_share_during_writer_busy": null,
+   "other_share_during_writer_busy": null
+  },
+  "graph_launch_stalls": {
+   "over_1ms": 54,
+   "per_s": 0.63,
+   "median_us": 1268,
+   "median_between_s": 1.35
+  }
+ },
+ {
+  "run": "openloop-after-trace-r1",
+  "mode": "trace",
+  "collector_env": {},
+  "load1_mean": 3.01,
+  "window_s": 85.4,
+  "latency": {
+   "output_tokens_per_s": 967.1,
+   "ttft_p50_ms": 22.77,
+   "ttft_p99_ms": 37.29,
+   "tpot_p50_ms": 5.21,
+   "tpot_p99_ms": 5.64
+  },
+  "collector": {
+   "seconds": 84.1,
+   "sites": {
+    "buffer_complete": {
+     "per_s": 60.3,
+     "us_per_call": 0.66,
+     "max_us": 10.6,
+     "cores": 0.0,
+     "engine_share": 0.0
+    },
+    "buffer_request": {
+     "per_s": 60.3,
+     "us_per_call": 0.27,
+     "max_us": 5.1,
+     "cores": 0.0,
+     "engine_share": 1.0
+    },
+    "emit_json": {
+     "per_s": 181.4,
+     "us_per_call": 0.19,
+     "max_us": 12.2,
+     "cores": 0.0,
+     "engine_share": 0.99
+    },
+    "pop_step": {
+     "per_s": 336.9,
+     "us_per_call": 0.51,
+     "max_us": 37.6,
+     "cores": 0.0002,
+     "engine_share": 1.0
+    },
+    "probe_tick": {
+     "per_s": 2.0,
+     "us_per_call": 51.05,
+     "max_us": 430.9,
+     "cores": 0.0001,
+     "engine_share": 0.0
+    },
+    "process_buffer": {
+     "per_s": 60.3,
+     "us_per_call": 1376.26,
+     "max_us": 7101.5,
+     "cores": 0.083,
+     "engine_share": 0.0
+    },
+    "push_step": {
+     "per_s": 336.9,
+     "us_per_call": 0.39,
+     "max_us": 11.3,
+     "cores": 0.0001,
+     "engine_share": 1.0
+    },
+    "rotate_segment": {
+     "per_s": 2.3,
+     "us_per_call": 240.51,
+     "max_us": 726.7,
+     "cores": 0.0005,
+     "engine_share": 0.0
+    },
+    "write_record": {
+     "per_s": 89510.5,
+     "us_per_call": 0.32,
+     "max_us": 968.0,
+     "cores": 0.0283,
+     "engine_share": 0.0
+    }
+   },
+   "writer_cpu_cores": 0.091,
+   "probe_cpu_cores": 0.0001,
+   "cupti_records_per_s": 89272,
+   "cupti_bytes_per_s": 15794146,
+   "timestamp_callbacks_per_s": 145989
+  },
+  "threads": {
+   "engine": {
+    "cpu": 0.397,
+    "wait": 0.0001,
+    "involuntary": 5.8,
+    "ecore": 0.019
+   },
+   "VLLM::EngineCor": {
+    "cpu": 0.299,
+    "wait": 0.0001,
+    "involuntary": 6.0,
+    "ecore": 0.043
+   },
+   "rqs-writer": {
+    "cpu": 0.09,
+    "wait": 0.0001,
+    "involuntary": 3.5,
+    "ecore": 0.125
+   },
+   "VLLM::EngineCor#2": {
+    "cpu": 0.011,
+    "wait": 0.0002,
+    "involuntary": 0.6,
+    "ecore": 0.37
+   },
+   "other": {
+    "cpu": 0.019,
+    "wait": 0.0003,
+    "involuntary": 1.4,
+    "ecore": null
+   }
+  },
+  "apis": {
+   "cuLaunchKernel": {
+    "calls": 183249,
+    "p50_us": 2.0,
+    "p90_us": 4.4,
+    "p99_us": 2270.2,
+    "max_us": 6334.4,
+    "total_s": 7.103
+   },
+   "cuLaunchKernelEx": {
+    "calls": 124410,
+    "p50_us": 3.8,
+    "p90_us": 7.3,
+    "p99_us": 16.5,
+    "max_us": 5446.6,
+    "total_s": 1.077
+   },
+   "cuMemcpyHtoDAsync": {
+    "calls": 171,
+    "p50_us": 16.9,
+    "p90_us": 44.2,
+    "p99_us": 292.3,
+    "max_us": 414.3,
+    "total_s": 0.005
+   },
+   "cuStreamSynchronize": {
+    "calls": 171,
+    "p50_us": 6.6,
+    "p90_us": 20.4,
+    "p99_us": 25.3,
+    "max_us": 26.5,
+    "total_s": 0.002
+   },
+   "cudaEventRecordWithFlags": {
+    "calls": 94115,
+    "p50_us": 1.6,
+    "p90_us": 3.4,
+    "p99_us": 6.1,
+    "max_us": 3679.4,
+    "total_s": 0.345
+   },
+   "cudaEventSynchronize": {
+    "calls": 14280,
+    "p50_us": 1680.0,
+    "p90_us": 3444.2,
+    "p99_us": 7728.1,
+    "max_us": 25131.4,
+    "total_s": 23.514
+   },
+   "cudaGraphLaunch": {
+    "calls": 13441,
+    "p50_us": 307.4,
+    "p90_us": 445.4,
+    "p99_us": 772.6,
+    "max_us": 10873.9,
+    "total_s": 4.353
+   },
+   "cudaLaunchKernel": {
+    "calls": 229648,
+    "p50_us": 3.9,
+    "p90_us": 10.4,
+    "p99_us": 2382.4,
+    "max_us": 8996.8,
+    "total_s": 16.843
+   },
+   "cudaMemcpyAsync": {
+    "calls": 65555,
+    "p50_us": 5.9,
+    "p90_us": 12.5,
+    "p99_us": 22.5,
+    "max_us": 3116.2,
+    "total_s": 0.608
+   },
+   "cudaMemsetAsync": {
+    "calls": 49756,
+    "p50_us": 1.8,
+    "p90_us": 3.6,
+    "p99_us": 10.5,
+    "max_us": 4762.4,
+    "total_s": 0.317
+   },
+   "cudaStreamWaitEvent": {
+    "calls": 14280,
+    "p50_us": 2.4,
+    "p90_us": 3.5,
+    "p99_us": 6.5,
+    "max_us": 25.9,
+    "total_s": 0.035
+   }
+  },
+  "slow_launches": {
+   "launches": 603033,
+   "over_100us": 11277,
+   "in_runs_of_3_or_more": 8345,
+   "longest_run": 5,
+   "extra_s": 23.075,
+   "slow_share_during_writer_busy": 0.01,
+   "other_share_during_writer_busy": 0.14
+  },
+  "graph_launch_stalls": {
+   "over_1ms": 44,
+   "per_s": 0.52,
+   "median_us": 2415,
+   "median_between_s": 1.1
+  }
+ }
+]

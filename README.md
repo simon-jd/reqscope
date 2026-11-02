@@ -24,9 +24,9 @@ prefill, async scheduling):
   schedule the analyzer never sees injects 6,000-token prompts, 300 ms
   bursts of matrix multiplies from a separate CUDA process, and 200 ms stops
   of the engine process. Over 3 seeds and 27 events, trace-mode blame named
-  the right cause for every event. Per slow step, recall is 0.84 / 0.99 /
+  the right cause for every event. Per slow step, recall is 0.77 / 1.00 /
   1.00 for interference / GPU slowdown / host delay, and precision inside
-  the injection windows 1.00 / 1.00 / 0.60.
+  the injection windows 1.00 / 1.00 / 0.56.
 - **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
   long prompts but calls every GPU burst and engine stop "undetermined" (0
   of 18). In a single-cause experiment membership alone is enough: six long
@@ -35,10 +35,13 @@ prefill, async scheduling):
 - **Recording steps is free; tracing every kernel is not.** Under open-loop
   load at 8–24 requests/s, the plugin alone and the light collector stay
   within 1% of no collector on TPOT p50 and p99. Per-kernel trace mode adds
-  2–3% at 8 requests/s, 18% (p50) and 27% (p99) at 16, and at 24 the
-  server falls behind (median TTFT 26 to 314 ms). Tracing also adds slow
-  steps of its own: 415 outside the injection windows across the three
-  trace runs, against 39 with CUPTI off.
+  2–4% at 8 requests/s and 17% (p50) and 28% (p99) at 16; at 24 it fell
+  behind (median TTFT 26 to 314 ms, earlier build). It also adds slow
+  steps of its own: 231 outside the injection windows across three trace
+  runs, against 6 with CUPTI off. A faster writer and larger CUPTI device
+  buffers halved those (from 503 in the same session) and cut the p99 cost
+  at 16 requests/s from 36% to 28%, but not the p50 cost; see
+  [Trace mode's own cost](#trace-modes-own-cost).
 
 Limits: one model on one GPU at TP = 1, injected causes rather than
 production incidents, synchronization stalls not separated from host delay,
@@ -67,53 +70,65 @@ The benchmark writes each event's actual window to `client.json`, which
 `blame` never reads. `bench/score_causes.py` groups each run's slow decode
 gaps by producing step (the decodes run in lockstep) and labels each step
 with the event window it overlaps most, extended by 20 ms, or with "no
-injected cause". Three seeds ran with trace mode and three with the plugin
-alone. The cause rules ([docs/design.md](docs/design.md), "Causes") were
-fixed on a pilot run with another seed before these runs. Other projects'
-jobs kept the host's load average at 6.5–10.9 during them (per run in
-[results/multicause.json](results/multicause.json)).
+injected cause". The cause rules ([docs/design.md](docs/design.md),
+"Causes") were fixed on a pilot run with another seed. The runs below used
+the current collector, three seeds with trace mode and three with the
+plugin alone, interleaved with three trace runs of the collector before
+its writer and device-buffer changes (commit 3ee45a6, "before"); host load
+averaged 2.3–3.9 ([results/multicause-after.json](results/multicause-after.json),
+[results/multicause-before.json](results/multicause-before.json)). An
+earlier round on a busier host (load 6.5–10.9, commit 60fca57) is in
+[results/multicause.json](results/multicause.json).
 
 | Injected cause | Trace: events found | Trace: step recall | Trace: step precision inside windows | Plugin only: events found | Plugin only: step recall |
 |---|---|---|---|---|---|
-| interference | 9 of 9 | 0.84 (27 of 32) | 1.00 | 9 of 9 | 0.93 (27 of 29) |
-| GPU slowdown | 9 of 9 | 0.99 (215 of 216) | 1.00 | 0 of 9 | 0 (all 220 undetermined) |
-| host delay | 9 of 9 | 1.00 (9 of 9) | 0.60 | 0 of 9 | 0 (all 9 undetermined) |
+| interference | 9 of 9 | 0.77 (27 of 35) | 1.00 | 9 of 9 | 0.84 (27 of 32) |
+| GPU slowdown | 9 of 9 | 1.00 (223 of 223) | 1.00 | 0 of 9 | 0 (all 221 undetermined) |
+| host delay | 9 of 9 | 1.00 (10 of 10) | 0.56 | 0 of 9 | 0 (all 9 undetermined) |
 
 Slow steps by true cause (rows) and blame's cause (columns), summed over
-the three seeds ([results/multicause.json](results/multicause.json)):
+the three seeds:
 
 | Trace mode | interference | GPU slowdown | host delay | unexplained | undetermined |
 |---|---|---|---|---|---|
-| interference | 27 | 0 | 5 | 0 | 0 |
-| GPU slowdown | 0 | 215 | 1 | 0 | 0 |
-| host delay | 0 | 0 | 9 | 0 | 0 |
-| no injected cause | 3 | 0 | 412 | 0 | 0 |
+| interference | 27 | 0 | 8 | 0 | 0 |
+| GPU slowdown | 0 | 223 | 0 | 0 | 0 |
+| host delay | 0 | 0 | 10 | 0 | 0 |
+| no injected cause | 3 | 0 | 228 | 0 | 0 |
 
 | Plugin only | interference | GPU slowdown | host delay | unexplained | undetermined |
 |---|---|---|---|---|---|
-| interference | 27 | 0 | 0 | 0 | 2 |
-| GPU slowdown | 0 | 0 | 0 | 0 | 220 |
+| interference | 27 | 0 | 0 | 0 | 5 |
+| GPU slowdown | 0 | 0 | 0 | 0 | 221 |
 | host delay | 0 | 0 | 0 | 0 | 9 |
-| no injected cause | 3 | 0 | 0 | 0 | 36 |
+| no injected cause | 3 | 0 | 0 | 0 | 3 |
 
-The evidence behind the verdicts (medians over the trace runs' slow steps):
-during a GPU burst, a decode step's GPU busy time doubles (10.4 ms against
-5.1 ms in nearby decode steps) and its first kernel starts 8.7 ms after its
-launch returns instead of 4.1 ms. During an engine stop the producing step's
-GPU work is normal (5.6 ms) and the gap holds 198 ms of host time after it.
+The evidence behind the verdicts (medians over the earlier round's trace
+runs): during a GPU burst, a decode step's GPU busy time doubles (10.4 ms
+against 5.1 ms in nearby decode steps) and its first kernel starts 8.7 ms
+after its launch returns instead of 4.1 ms. During an engine stop the
+producing step's GPU work is normal (5.6 ms) and the gap holds 198 ms of
+host time after it.
 
 What does not work:
-- **Steps near a long prompt that are not its prefill.** 5 of the 32 slow
+- **Steps near a long prompt that are not its prefill.** 8 of the 35 slow
   steps inside long-prompt windows had no co-scheduled prefill and were
-  called host delay (3.6–12 ms of extra host time), probably the engine
-  taking in the 6,000-token request before scheduling its chunks. The
-  window-based truth counts them as interference misses, and they are most
-  of why host-delay precision inside the windows is 0.60.
-- **Tracing's own slow steps.** Outside the windows the trace runs have 415
-  slow steps against 39 with CUPTI off under similar host load, and blame
-  calls 412 of them host delay. That matches what tracing costs (see "With CUPTI off" below), but
-  nothing here injects them, so against the injected truth host-delay
-  precision over all steps is 0.02.
+  called host delay, probably the engine taking in the 6,000-token request
+  before scheduling its chunks. The window-based truth counts them as
+  interference misses, and they are why host-delay precision inside the
+  windows is 0.56.
+- **Tracing's own slow steps.** Outside the windows the trace runs have 231
+  slow steps against 6 with CUPTI off, and blame calls 228 of them host
+  delay, so against the injected truth host-delay precision over all steps
+  is 0.04. The collector of 3ee45a6 had 503 such steps in the same session
+  (490 called host delay, precision 0.03). What is left is CUPTI's own
+  work inside launches ([Trace mode's own cost](#trace-modes-own-cost)).
+- **The `collector_active` flag does not separate them.** blame flags a
+  host delay when the collector was busy for at least half of its host
+  extra. It flagged 22 of the 228 spurious host delays and also 2 of the
+  10 real ones. What delays the engine now happens inside CUDA launch
+  calls, where CUPTI does its work, and the collector does not see what
+  CUPTI's own threads are doing.
 - **The 3 "no injected cause" steps called interference** are each run's
   first slow step, when the 16 decodes' own prompts are prefilled together:
   real interference, but not injected.
@@ -330,6 +345,68 @@ measure the collector's cost; the open-loop numbers above do.
 - All modes keep a bounded ring on disk, and `reqscope dump --pid` freezes
   the last N seconds.
 
+The table above is from an earlier build (commit 2c85655); trace mode's
+cost with the current collector is in the next section.
+
+## Trace mode's own cost
+
+Trace mode slows the engine it measures and adds slow steps that blame
+calls host delay. Where that time goes was measured from inside: every
+capture now has the collector's own timings per site (`CollectorStats`),
+the benchmark samples every EngineCore thread from `/proc`, and
+`bench/trace_cost.py` sets the CUDA API durations of light and trace runs
+side by side (docs/design.md, "What trace mode costs the engine";
+[results/trace-cost.json](results/trace-cost.json)). In one 40 s run at
+16 requests/s:
+- the collector's code on the engine thread (buffer requests, step push
+  and pop, plugin records) is under 0.1% of a core;
+- CUPTI's work inside launches is not: the decode graph's launch takes
+  277 µs against 72 µs in light mode;
+- the writer took 0.33 cores, and while it built `Json` objects, runs of
+  launches on the engine thread took about 250 µs each (29,243 launches
+  over 100 µs, 7.2 s in 42 s); writing text instead, it takes 0.10 cores
+  and the runs are gone;
+- moving to CUPTI's next 3.2 MB device buffer stalled a launch for 1–2 ms
+  every few hundred steps; the collector now asks for 32 MB buffers.
+
+Before and after, in the same session: five rounds of the open-loop
+experiment at 8 and 16 requests/s, with no collector, trace mode as of
+commit 3ee45a6 and the current trace mode in an order rotated each round
+([results/openloop-before.json](results/openloop-before.json),
+[results/openloop-after.json](results/openloop-after.json); host load
+2.0–3.6), and the multi-cause runs above.
+
+| Rate | Collector | TTFT p50, ms | TPOT p50, ms | TPOT p99, ms | TPOT p50 / p99 vs none |
+|---|---|---|---|---|---|
+| 8/s | none | 23.2 (22.9–23.3) | 5.12 (5.11–5.12) | 5.44 (5.40–5.44) | |
+| 8/s | trace, before | 22.6 (22.6–22.9) | 5.21 (5.18–5.21) | 5.65 (5.50–5.69) | +1.8% / +3.9% |
+| 8/s | trace, now | 22.7 (22.6–22.8) | 5.20 (5.19–5.21) | 5.64 (5.57–5.67) | +1.6% / +3.7% |
+| 16/s | none | 23.7 (23.7–24.1) | 5.29 (5.27–5.29) | 6.08 (6.07–6.10) | |
+| 16/s | trace, before | 26.4 (25.9–26.7) | 6.22 (6.15–6.29) | 8.26 (7.77–8.40) | +17.6% / +35.9% |
+| 16/s | trace, now | 25.2 (24.8–25.9) | 6.19 (6.11–6.24) | 7.77 (7.34–7.93) | +17.0% / +27.8% |
+
+| Multi-cause runs, 3 seeds | Slow steps outside the windows | Called host delay | Host-delay precision, all steps |
+|---|---|---|---|
+| trace, before | 503 | 490 | 0.03 |
+| trace, now | 231 | 228 | 0.04 |
+| plugin only | 6 | 0 | — |
+
+What improved and what did not:
+- **Spurious slow steps halved** (503 to 231) and the TPOT p99 cost at
+  16 requests/s fell from 36% to 28%, with TTFT p50 +6% instead of +11%.
+- **The TPOT p50 cost did not move** (17.6% to 17.0%), and host-delay
+  precision over all steps is still 0.04. In the open-loop runs, launches
+  over 100 µs fell from 104,247 to 11,277 in round 1, but their total time
+  only from 25.1 s to 23.1 s: the long waits left are fewer and longer
+  (median about 2 ms), all inside CUDA launch calls
+  ([results/openloop-trace-cost.json](results/openloop-trace-cost.json)).
+  They come with per-kernel tracing (light mode had 11 launches over
+  100 µs in 42 s), and the collector has no handle on them short of not
+  tracing every kernel.
+- **Tried and dropped:** pinning the collector's and CUPTI's threads to
+  the efficiency cores and a 1 ms CUPTI flush period both made trace mode
+  slower (docs/design-tradeoffs.md).
+
 ## Analysis speed
 
 On the 23 s, 0.9 GB capture above (2.06M records), with byte-identical
@@ -369,11 +446,17 @@ python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r bench/requirements.txt && pip install -e adapter/vllm
 
 # Blind multi-cause benchmark: three seeds with trace mode and with the plugin
-# alone; each run holds the GPU lock and starts its own GPU burner
-for s in 1 2 3; do for m in trace plugin; do
-  python bench/interference.py multicause --mode $m --seed $s --out results/raw/multicause-$m-s$s
-done; done
-python bench/score_causes.py results/raw/multicause-*-s?
+# alone, and trace mode of commit 3ee45a6 (built in build-before/); each run
+# holds the GPU lock and starts its own GPU burner
+for s in 1 2 3; do
+  for m in trace plugin; do
+    python bench/interference.py multicause --mode $m --seed $s --out results/raw/multicause-after-$m-s$s
+  done
+  python bench/interference.py multicause --mode trace --build build-before --seed $s \
+    --out results/raw/multicause-before-trace-s$s
+done
+python bench/score_causes.py results/raw/multicause-after-*-s?
+python bench/score_causes.py results/raw/multicause-before-trace-s?
 
 # Interference experiment: one vLLM server, a few minutes on the GPU.
 # The model is Qwen/Qwen2.5-1.5B-Instruct at a pinned revision.
@@ -393,6 +476,25 @@ for r in 1 2 3 4 5; do for k in 0 1 2 3; do m=${modes[$(( (k + r - 1) % 4 ))]}
 done; done
 python bench/score.py openloop results/raw/openloop-*
 
+# Trace mode before and after its writer and device-buffer changes: a
+# build of commit 3ee45a6 in build-before/, rounds rotated as above
+for r in 1 2 3 4 5; do for m in off before trace; do
+  b=build; mode=$m; [ $m = before ] && { b=build-before; mode=trace; }
+  python bench/interference.py openloop --mode $mode --build $b --round $r --rates 8,16 --seconds 40 \
+    --out results/raw/openloop-$([ $m = before ] && echo before-trace || echo after-$m)-r$r
+done; done
+python bench/score.py openloop results/raw/openloop-after-off-r* results/raw/openloop-before-trace-r*
+python bench/score.py openloop results/raw/openloop-after-off-r* results/raw/openloop-after-trace-r*
+python bench/trace_cost.py results/raw/openloop-before-trace-r1 results/raw/openloop-after-trace-r1
+
+# Where trace mode's time goes: one 40 s run at 16 requests/s per mode, and
+# decode-like steps without vLLM
+for m in off plugin light trace; do
+  python bench/interference.py openloop --mode $m --rates 16 --seconds 40 --out results/raw/tracecost-$m
+done
+python bench/trace_cost.py results/raw/tracecost-*
+python bench/launch_cost.py --mode trace --out results/raw/launch-cost/decode-trace-1.json
+
 # Closed-loop overhead, one server per collector mode
 for m in off light trace; do python bench/interference.py overhead --mode $m --out results/raw/overhead-$m; done
 python bench/score.py overhead results/raw/overhead-{off,light,trace}
@@ -405,9 +507,11 @@ that needs no local path: `--cuda` (toolkit root, default `$CUDA_HOME` or
 environment with vLLM and the plugin, default the running interpreter),
 `--model` and `--revision` (a Hub id, or a local model directory),
 `--hf-home`, `--offline`, `--cache-root`, `--gpu-memory-utilization`
-(default 0.6) and `--lock FILE`, which holds that file's flock from server
-start to shutdown so runs on a shared GPU do not overlap. Each run records
-the host's load average in its `client.json`. `bench/score.py`
+(default 0.6), `--lock FILE`, which holds that file's flock from server
+start to shutdown so runs on a shared GPU do not overlap, and
+`--collector-env REQSCOPE_KEY=VALUE` for extra collector settings. Each run
+records the host's load average and samples of every EngineCore thread
+(CPU, run-queue wait, last CPU) in its `client.json`. `bench/score.py`
 raises the trace reader's budget to 8 GiB, which a 0.9 GB capture needs.
 
 The script also shows the whole setup:
@@ -459,16 +563,20 @@ The tests run on CPU. They cover:
   around the step's GPU work; `blame` does not tell them apart, and the
   BPF probe that could was not used.
 - **Trace mode perturbs what it measures.** It added slow decode steps of
-  its own in the interference runs, by an amount that varied between runs
-  (30, 71 and 129 slow steps against 27 and 33 with CUPTI off), 415 against
-  39 outside the injection windows of the multi-cause runs, and it slows a
-  loaded server (open-loop table). Its per-kernel evidence is for short
-  captures at moderate load.
+  its own in the interference runs (30, 71 and 129 against 27 and 33 with
+  CUPTI off, earlier build) and 231 against 6 outside the injection windows
+  of the multi-cause runs, which blame calls host delay; it costs 17% of
+  TPOT p50 at 16 requests/s. Most of what is left happens inside CUDA
+  launch calls during per-kernel tracing, which the collector cannot
+  change ([Trace mode's own cost](#trace-modes-own-cost)). The
+  `collector_active` flag does not pick these steps out. Its per-kernel
+  evidence is for short captures at moderate load.
 - **A shared host.** The runs shared the machine with other projects' jobs.
   Every run held the GPU lock those jobs share, but host load varied
-  (1-minute load average 1.1–4.7 in the open-loop runs, 6.5–10.9 in the
-  multi-cause runs, about 9–10 in the first CUPTI-off pair), and host load
-  changes host-side timings.
+  (1-minute load average 1.1–4.7 in the first open-loop round, 2.0–3.6 in
+  the before/after round, 6.5–10.9 in the first multi-cause round and
+  2.3–3.9 in the second, about 9–10 in the first CUPTI-off pair), and host
+  load changes host-side timings.
 - **The BPF scheduler probe** (`bpf/`) needs CAP_BPF and was not used here,
   so host-side CPU stalls are reported as `between_steps`, without
   run-queue evidence.

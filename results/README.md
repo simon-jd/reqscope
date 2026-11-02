@@ -16,6 +16,9 @@ here are derived from them.
 | `ablation.json` | `interference-s5`, then `ablation-trace` and `ablation-plugin` (pair 1) and `ablation-trace-2` and `ablation-plugin-2` (pair 2) | `bench/compare_runs.py --load`, after `bench/score.py interference` on each |
 | `openloop.json` | `openloop-{off,plugin,light,trace}-r1` to `-r5` | `bench/score.py openloop --load` |
 | `multicause.json` | `multicause-trace-s1` to `-s3` and `multicause-plugin-s1` to `-s3` | `bench/score_causes.py`, which runs `reqscope blame` on each capture and compares it with the injected events in `client.json` |
+| `openloop-before.json`, `openloop-after.json` | `openloop-after-off-r1` to `-r5` with `openloop-before-trace-r1` to `-r5`, and with `openloop-after-trace-r1` to `-r5` | `bench/score.py openloop`, once per pair of sets: both files share the same no-collector runs |
+| `multicause-before.json`, `multicause-after.json` | `multicause-before-trace-s1` to `-s3`; `multicause-after-trace-s1` to `-s3` and `multicause-after-plugin-s1` to `-s3` | `bench/score_causes.py`, with the current `reqscope blame` (it adds the `collector_active` flags; the before runs have no writer activity records, so none are flagged) |
+| `openloop-trace-cost.json` | `openloop-before-trace-r1`, `openloop-after-trace-r1` | `bench/trace_cost.py` (both rates of round 1) |
 | `trace-cost.json` | `tracecost-{off,plugin,light,trace}`, then `tracecost-trace-text-dev32`, `-ecores` and `-flush1` | `bench/trace_cost.py`: one 40 s open-loop run at 16 requests/s each; the collector's CollectorStats, EngineCore thread samples, CUDA API durations, slow launches and graph-launch stalls |
 | `launch-cost.json` | `results/raw/launch-cost/*.json` | `bench/launch_cost.py`, one file per run, gathered with a `config` and `collector` label per run |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
@@ -53,6 +56,15 @@ Notes:
   and the GPU lock for each run (the GPU burner ran inside that hold). The
   cause rules were fixed on `multicause-pilot-trace` (seed 100), which is
   not scored. Each run's `client.json` has its host load samples.
+- The before/after runs (`openloop-before-*`, `openloop-after-*`,
+  `multicause-before-*`, `multicause-after-*`) ran in one session, each
+  holding the GPU lock, with the bench scripts of commit 3218aeb and
+  `--gpu-memory-utilization 0.6`. "after" is the collector of 3218aeb
+  (the same as 983884e); "before" is a build of 3ee45a6. Open-loop rounds
+  rotated the order of no collector, before and after. Each run directory
+  has `nvidia-smi.csv` with the GPU's state before and after it: at the
+  start of the 24 runs the GPU was idle in P0 or P2 at a 2.5–2.8 GHz SM
+  clock (clocks cannot be locked on this host).
 - The `tracecost-*` runs measured where trace mode's time goes. The first
   four (off, plugin, light, trace) used the collector of commit 8b4670e,
   built with switches for the experiments below left unset, and the bench

@@ -1,0 +1,302 @@
+{
+  "by_mode": {
+    "trace": {
+      "seeds": [
+        1,
+        2,
+        3
+      ],
+      "slow_steps": 778,
+      "per_cause": {
+        "interference": {
+          "true_steps": 34,
+          "recall": 0.794,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 9,
+          "events_detected": 9
+        },
+        "gpu_slowdown": {
+          "true_steps": 226,
+          "recall": 1.0,
+          "precision": 0.996,
+          "precision_inside_windows": 0.996,
+          "events": 9,
+          "events_detected": 9
+        },
+        "host_delay": {
+          "true_steps": 15,
+          "recall": 1.0,
+          "precision": 0.029,
+          "precision_inside_windows": 0.714,
+          "events": 9,
+          "events_detected": 9
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 27,
+          "gpu_slowdown": 1,
+          "host_delay": 6,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 226,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 15,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 3,
+          "gpu_slowdown": 0,
+          "host_delay": 490,
+          "unexplained": 10,
+          "undetermined": 0
+        }
+      },
+      "collector_active_flags": {
+        "host_delay_flagged_by_true_cause": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "none": 0
+        },
+        "host_delay_precision_unflagged": 0.029,
+        "host_delay_recall_unflagged": 1.0
+      }
+    }
+  },
+  "runs": [
+    {
+      "run": "multicause-before-trace-s1",
+      "mode": "trace",
+      "seed": 1,
+      "load1_mean": 3.64,
+      "slow_steps": 316,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 13,
+          "recall": 0.692,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 72,
+          "recall": 1.0,
+          "precision": 0.986,
+          "precision_inside_windows": 0.986,
+          "events": 3,
+          "events_detected": 3
+        },
+        "host_delay": {
+          "true_steps": 6,
+          "recall": 1.0,
+          "precision": 0.026,
+          "precision_inside_windows": 0.667,
+          "events": 3,
+          "events_detected": 3
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 1,
+          "host_delay": 3,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 72,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 6,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 218,
+          "unexplained": 6,
+          "undetermined": 0
+        }
+      },
+      "collector_active_flags": {
+        "host_delay_flagged_by_true_cause": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "none": 0
+        },
+        "host_delay_precision_unflagged": 0.026,
+        "host_delay_recall_unflagged": 1.0
+      }
+    },
+    {
+      "run": "multicause-before-trace-s2",
+      "mode": "trace",
+      "seed": 2,
+      "load1_mean": 2.34,
+      "slow_steps": 219,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 9,
+          "recall": 1.0,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 79,
+          "recall": 1.0,
+          "precision": 1.0,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "host_delay": {
+          "true_steps": 5,
+          "recall": 1.0,
+          "precision": 0.039,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 79,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 5,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 123,
+          "unexplained": 2,
+          "undetermined": 0
+        }
+      },
+      "collector_active_flags": {
+        "host_delay_flagged_by_true_cause": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "none": 0
+        },
+        "host_delay_precision_unflagged": 0.039,
+        "host_delay_recall_unflagged": 1.0
+      }
+    },
+    {
+      "run": "multicause-before-trace-s3",
+      "mode": "trace",
+      "seed": 3,
+      "load1_mean": 2.28,
+      "slow_steps": 243,
+      "trace_status": "Partial",
+      "per_cause": {
+        "interference": {
+          "true_steps": 12,
+          "recall": 0.75,
+          "precision": 0.9,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "gpu_slowdown": {
+          "true_steps": 75,
+          "recall": 1.0,
+          "precision": 1.0,
+          "precision_inside_windows": 1.0,
+          "events": 3,
+          "events_detected": 3
+        },
+        "host_delay": {
+          "true_steps": 4,
+          "recall": 1.0,
+          "precision": 0.026,
+          "precision_inside_windows": 0.571,
+          "events": 3,
+          "events_detected": 3
+        }
+      },
+      "confusion": {
+        "interference": {
+          "interference": 9,
+          "gpu_slowdown": 0,
+          "host_delay": 3,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "gpu_slowdown": {
+          "interference": 0,
+          "gpu_slowdown": 75,
+          "host_delay": 0,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "host_delay": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 4,
+          "unexplained": 0,
+          "undetermined": 0
+        },
+        "none": {
+          "interference": 1,
+          "gpu_slowdown": 0,
+          "host_delay": 149,
+          "unexplained": 2,
+          "undetermined": 0
+        }
+      },
+      "collector_active_flags": {
+        "host_delay_flagged_by_true_cause": {
+          "interference": 0,
+          "gpu_slowdown": 0,
+          "host_delay": 0,
+          "none": 0
+        },
+        "host_delay_precision_unflagged": 0.026,
+        "host_delay_recall_unflagged": 1.0
+      }
+    }
+  ]
+}
