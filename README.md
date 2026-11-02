@@ -36,6 +36,11 @@ prefill, async scheduling):
   verdict on trace mode's own slow steps the same as blame; with GPU data,
   blame changes only the 223 steps during GPU bursts, from host delay to
   GPU slowdown.
+- **Nsight Systems does as well.** In three runs under Nsight Systems,
+  with the plugin's NVTX step ranges, a simple GPU-time rule also named
+  every event's cause, and those runs had 98 slow steps of their own
+  against trace mode's 231. vLLM's own per-step log separates GPU bursts
+  but calls 6 of 9 engine-stop steps GPU slowdown.
 - **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
   long prompts but calls every GPU burst and engine stop "undetermined" (0
   of 18). In a single-cause experiment membership alone is enough: six long
@@ -140,6 +145,45 @@ That is why host-delay precision inside the windows rises from 0.04 to
   as the trivial rule does. Over all steps, host-delay precision with GPU
   data (0.04) is no better than the trivial rule without it (0.04 on the
   plugin-only runs, which do not have those steps).
+
+**Against Nsight Systems and vLLM's own step log.** Three more runs with the
+same seeds used the plugin alone, without reqscope's CUPTI library, under
+Nsight Systems 2025.6. It traced CUDA with one row per graph launch, and
+the plugin marked each step with an NVTX range; vLLM's own per-step log was
+on (`--nsys --vllm-iteration-log`,
+[results/multicause-nsys.json](results/multicause-nsys.json)).
+`checker/nsys_projection.py` matched every GPU row of each run (about
+149,000) to a step, and 6,006 of vLLM's 6,009 log lines per run agreed with
+the plugin's steps. Both kinds of data get one simple rule: interference if
+the step had prefill; otherwise GPU slowdown if the step's time (GPU busy
+time from Nsight Systems, or vLLM's "iteration elapsed time") exceeds the
+run's median by at least half the step's excess; host delay otherwise. This
+is not blame's rule, which compares with nearby comparable steps and also
+measures host time. All rows are the same three runs, scored as above. The
+host was busier than during the trace runs (load average 5.8–8.9 against
+2.3–3.9).
+
+| Rule, on the Nsight Systems runs | Interference recall / precision | GPU slowdown recall / precision | Host delay recall / precision | Events found |
+|---|---|---|---|---|
+| Nsight Systems GPU busy time | 0.84 / 0.90 | 0.98 / 1.00 | 1.00 / 0.08 | 27 of 27 |
+| vLLM iteration elapsed time | 0.84 / 0.90 | 0.95 / 0.95 | 0.33 / 0.03 | 21 of 27 |
+| trivial | 0.84 / 0.90 | 0 / — | 1.00 / 0.03 | 18 of 27 |
+| blame, plugin only | 0.84 / 0.90 | 0 / — | 0 / — | 9 of 27 |
+
+- **Nsight Systems' GPU data does as well as trace mode here.** Matched to
+  steps through the plugin's NVTX ranges, it names the cause of every
+  event, as trace-mode blame does, and misses 4 of the 218 GPU-burst steps.
+  It added fewer slow steps of its own: 98 outside the windows over three
+  runs, against trace mode's 231 on a quieter host and 6 with the plugin
+  alone. So over all steps its host-delay precision is 0.08, against
+  blame's 0.04 in trace mode. On this benchmark reqscope's own CUPTI
+  tracing gives no better verdicts than Nsight Systems; both depend on the
+  plugin's step and token records.
+- **vLLM's per-step log** separates GPU bursts almost as well: its elapsed
+  time is the engine's wait for the step's output, which grows when
+  another process shares the GPU. But it calls 6 of the 9 engine-stop steps
+  GPU slowdown, because a stop that falls inside that wait lengthens it the
+  same way.
 
 The evidence behind the correct verdicts (medians over the steps of the
 three trace runs, `verdict_evidence_medians` in
@@ -493,7 +537,22 @@ for s in 1 2 3; do
     --out results/raw/multicause-before-trace-s$s
 done
 python bench/score_causes.py results/raw/multicause-after-*-s?
+python bench/score_causes.py --rule trivial results/raw/multicause-after-*-s?
 python bench/score_causes.py results/raw/multicause-before-trace-s?
+
+# The same seeds under Nsight Systems: plugin only, NVTX step ranges,
+# vLLM's per-step log
+for s in 1 2 3; do
+  r=results/raw/multicause-nsys-s$s
+  python bench/interference.py multicause --mode plugin --nsys --vllm-iteration-log --seed $s --out $r
+  nsys export --type sqlite --output $r/nsys.sqlite $r/nsys.nsys-rep
+  python -m checker.nsys_projection $r/nsys.sqlite --steps --max-bytes $((8 << 30)) \
+    --max-work 200000000 --output $r/nsys-steps.json
+  python bench/vllm_iterations.py $r
+done
+for rule in blame trivial prefill_only vllm nsys; do
+  python bench/score_causes.py --rule $rule results/raw/multicause-nsys-s?
+done
 
 # Interference experiment: one vLLM server, a few minutes on the GPU.
 # The model is Qwen/Qwen2.5-1.5B-Instruct at a pinned revision.
