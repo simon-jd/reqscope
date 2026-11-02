@@ -166,8 +166,8 @@ about an ordinary 5.4 ms decode step. The rest of each 8–15 ms gap, 2–10 ms,
 is not GPU work of that step. Three of them have long host spans (5.7–7.4
 ms from `execute_model` to the end of `sample_tokens`); the other eight
 have short ones (1.0–3.5 ms), so their delay lies between steps, in
-scheduling or output processing, which `blame` does not attribute and the
-BPF probe (not used here) would observe. The four inside a prefill window
+scheduling or output processing, which `blame` does not attribute. The
+four inside a prefill window
 are within two steps of that prompt's prefill chunks.
 
 "0 lost": the capture's sequence numbers are contiguous and it holds no
@@ -560,8 +560,7 @@ The tests run on CPU. They cover:
   Each slow step gets one cause.
 - **Host delay is one class.** A host-device synchronization stall, a
   garbage-collection pause and CPU contention all look like host time
-  around the step's GPU work; `blame` does not tell them apart, and the
-  BPF probe that could was not used.
+  around the step's GPU work; `blame` does not tell them apart.
 - **Trace mode perturbs what it measures.** It added slow decode steps of
   its own in the interference runs (30, 71 and 129 against 27 and 33 with
   CUPTI off, earlier build) and 231 against 6 outside the injection windows
@@ -577,6 +576,5 @@ The tests run on CPU. They cover:
   the before/after round, 6.5–10.9 in the first multi-cause round and
   2.3–3.9 in the second, about 9–10 in the first CUPTI-off pair), and host
   load changes host-side timings.
-- **The BPF scheduler probe** (`bpf/`) needs CAP_BPF and was not used here,
-  so host-side CPU stalls are reported as `between_steps`, without
-  run-queue evidence.
+- **No CPU scheduling evidence.** Host-side CPU stalls are reported as
+  `between_steps`, without run-queue evidence.

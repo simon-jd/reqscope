@@ -307,5 +307,3 @@ its memory budget (`REQSCOPE_TRACE_BUDGET_MIB`); it never truncates silently.
   so their output grows with the GPU activity around each request and is
   much larger than the capture. Long captures need `blame`, or a shorter
   window.
-- The BPF scheduler probe (`bpf/`) needs CAP_BPF and was not part of these
-  experiments.

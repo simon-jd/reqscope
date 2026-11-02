@@ -23,7 +23,7 @@ rejects wrong membership, invented edge provenance, and broken conservation.
 
 The fake engine records are synthetic CPU files. They exercise graph replay
 identity and padding semantics but do not execute kernels or validate CUPTI,
-vLLM, BPF, tracing overhead, or any GPU hardware behavior.
+vLLM, tracing overhead, or any GPU hardware behavior.
 
 The CUPTI recordings of the CUDA DAG fixtures (`fixtures/dag/`) are checked
 in under `fixtures/recordings/`. `tests/test_real_dag_edges.py` reads them

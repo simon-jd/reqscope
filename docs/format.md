@@ -30,8 +30,9 @@ and `timestamp`, the time it wrote the record. `seq` starts at 1 and keeps
 increasing across all of a producer's segments, and processes never share a
 sequence space. Records are ordered by producer and `seq` before gaps are
 looked for; a repeated `seq` or a conflicting identity also makes the trace
-Partial. The BPF loader writes as its own producer and names the observed
-process in `target_producer`.
+Partial. `Sched` records name the observed process in `target_producer`;
+the analyzer reads them when present, but reqscope itself does not write
+them.
 
 | Type | Main fields |
 |---|---|
