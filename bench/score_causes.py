@@ -87,7 +87,7 @@ def metrics(confusion: Counter, detected: Counter, injected: Counter, flagged: C
     return {"per_cause": per_cause, "confusion": matrix, "collector_active_flags": flags}
 
 
-def score(run: Path) -> tuple[dict, Counter, Counter, Counter]:
+def score(run: Path) -> tuple[dict, Counter, Counter, Counter, Counter]:
     client = json.loads((run / "client.json").read_text())
     blame_path = run / "blame.json"
     if not blame_path.exists():
