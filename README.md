@@ -34,13 +34,13 @@ prefill, async scheduling):
   recall 0.82, with or without CUPTI.
 - **Recording steps is free; tracing every kernel is not.** Under open-loop
   load at 8–24 requests/s, the plugin alone and the light collector stay
-  within 1% of no collector on TPOT p50 and p99. Per-kernel trace mode adds
-  2–4% at 8 requests/s and 17% (p50) and 28% (p99) at 16; at 24 it fell
-  behind (median TTFT 26 to 314 ms, earlier build). It also adds slow
-  steps of its own: 231 outside the injection windows across three trace
-  runs, against 6 with CUPTI off. A faster writer and larger CUPTI device
-  buffers halved those (from 503 in the same session) and cut the p99 cost
-  at 16 requests/s from 36% to 28%, but not the p50 cost; see
+  within 1% of no collector on TPOT p50 and p99 (earlier build). Per-kernel
+  trace mode adds 1.6% / 3.7% to TPOT p50 / p99 at 8 requests/s and 17% /
+  28% at 16 (current build; an earlier build fell behind at 24). It also
+  adds slow steps of its own: 231 outside the injection windows across
+  three trace runs, against 6 with CUPTI off. A faster writer and larger
+  CUPTI device buffers halved those (from 503 in the same session); their
+  effect on latency is within the noise of five rounds; see
   [Trace mode's own cost](#trace-modes-own-cost).
 
 Limits: one model on one GPU at TP = 1, injected causes rather than
@@ -289,6 +289,10 @@ reqscope export-perfetto RUN            # timeline for ui.perfetto.dev
 
 ## Overhead
 
+This section covers the plugin alone and light mode, measured with an
+earlier build (commit 2c85655); trace mode's cost with the current build
+is in [Trace mode's own cost](#trace-modes-own-cost).
+
 **Open loop.** `bench/interference.py openloop`: Poisson arrivals of
 512-token prompts with 128 output tokens at 8, 16 and 24 requests/s, 40 s
 per rate on one server, against a closed-loop capacity of about 33
@@ -301,22 +305,19 @@ the runs was 1.1–4.7 (per run in [results/openloop.json](results/openloop.json
 | 8/s | none | 23.3 (22.9–23.4) | 37.5 (37.2–41.2) | 5.12 (5.11–5.13) | 5.45 (5.44–5.60) | 967 (967–968) |  |
 | 8/s | plugin only | 23.1 (22.8–23.3) | 37.0 (36.2–39.3) | 5.11 (5.11–5.12) | 5.44 (5.41–5.46) | 968 (968–968) | -0.2% / -0.2% |
 | 8/s | light | 22.7 (22.6–22.8) | 37.6 (35.4–38.5) | 5.13 (5.12–5.13) | 5.46 (5.44–5.47) | 968 (967–968) | +0.2% / +0.2% |
-| 8/s | trace | 22.9 (22.4–23.3) | 38.2 (37.3–38.5) | 5.21 (5.19–5.22) | 5.62 (5.53–5.70) | 967 (967–967) | +1.8% / +3.1% |
 | 16/s | none | 23.8 (23.6–24.1) | 44.4 (41.2–50.5) | 5.29 (5.28–5.29) | 6.09 (6.06–6.10) | 1,918 (1,918–1,919) |  |
 | 16/s | plugin only | 23.8 (23.4–23.9) | 44.0 (43.4–45.8) | 5.29 (5.27–5.29) | 6.10 (6.08–6.15) | 1,918 (1,918–1,919) | +0.0% / +0.2% |
 | 16/s | light | 23.5 (23.4–23.6) | 43.5 (40.2–44.5) | 5.30 (5.29–5.30) | 6.13 (6.11–6.14) | 1,919 (1,918–1,919) | +0.2% / +0.7% |
-| 16/s | trace | 26.4 (26.3–27.1) | 47.1 (45.6–50.4) | 6.25 (6.18–6.35) | 7.76 (7.69–10.3) | 1,911 (1,910–1,912) | +18.1% / +27.4% |
 | 24/s | none | 26.4 (26.2–27.1) | 130 (126–134) | 6.19 (6.18–6.19) | 7.32 (7.29–7.33) | 3,155 (3,154–3,155) |  |
 | 24/s | plugin only | 26.2 (25.2–26.3) | 128 (125–137) | 6.18 (6.17–6.19) | 7.34 (7.31–7.36) | 3,155 (3,155–3,155) | -0.2% / +0.3% |
 | 24/s | light | 25.9 (25.8–26.2) | 135 (133–152) | 6.22 (6.21–6.23) | 7.36 (7.34–7.41) | 3,155 (3,155–3,155) | +0.5% / +0.5% |
-| 24/s | trace | 314 (275–417) | 2,049 (1,814–2,574) | 9.87 (9.75–9.87) | 11.1 (10.5–12.1) | 3,003 (2,977–3,028) | +59.5% / +51.0% |
 
 - **Plugin only and light** are within 1% of no collector on TPOT at every
   rate. Their TTFT medians are within 3%, except light's p99 at 24/s (+4%,
   with overlapping ranges).
-- **Trace** costs 2–3% at 8 requests/s and 18% (TPOT p50) to 27% (p99) at
-  16. At 24 the engine no longer keeps up: throughput falls 4.8%, requests
-  queue, and median TTFT rises from 26 to 314 ms.
+- **Trace mode of that build** (rows in the same file) fell behind at 24
+  requests/s: throughput fell 4.8%, requests queued, and median TTFT rose
+  from 26 to 314 ms. The current build was not run at 24 requests/s.
 
 **Closed loop.** `bench/interference.py overhead`: 32 closed-loop clients
 send 512-token prompts and take 128 output tokens each, for 60 s on the
@@ -328,9 +329,10 @@ collector wrote during the 60 s load window ([results/captures.json](results/cap
 |---|---|---|---|---|---|---|
 | none | 4,267 (4,254 – 4,274) | 108 ms | 233 ms | 6.69 ms | 7.39 ms | |
 | light: graph envelopes + submission APIs | 4,226 (−1.0%) | 99 ms | 222 ms | 6.80 ms (+1.6%) | 7.43 ms (+0.5%) | 6 MB/s |
-| trace: every kernel + submission APIs | 4,078 (−4.4%) | 99 ms | 201 ms | 7.10 ms (+6.1%) | 8.01 ms (+8.4%) | 35 MB/s |
 
-In closed loop, median TTFT is lower with a collector on (108 to 99 ms),
+Trace mode of that build wrote 35 MB/s and cost 4.4% of throughput here
+(the trace row of the same files). In closed loop, median TTFT is lower
+with light mode on (108 to 99 ms),
 probably because with a fixed number of clients a slower engine also
 receives new prompts at a lower rate. Closed-loop TTFT therefore does not
 measure the collector's cost; the open-loop numbers above do.
@@ -338,15 +340,9 @@ measure the collector's cost; the open-loop numbers above do.
 - **Light mode** records each CUDA graph launch, but kernels launched
   outside a graph are not timed one by one.
 - **Trace mode** gives per-kernel GPU time, which `blame` needs for step
-  busy time. About half its cost appears to be CUPTI collecting a
-  timestamp for every kernel: an earlier run with the 4-buffer pool, when
-  many kernels went untimed, measured trace mode at 2.3%, but that run's
-  data is not in `results/`.
+  busy time.
 - All modes keep a bounded ring on disk, and `reqscope dump --pid` freezes
   the last N seconds.
-
-The table above is from an earlier build (commit 2c85655); trace mode's
-cost with the current collector is in the next section.
 
 ## Trace mode's own cost
 
@@ -392,10 +388,14 @@ commit 3ee45a6 and the current trace mode in an order rotated each round
 | plugin only | 6 | 0 | — |
 
 What improved and what did not:
-- **Spurious slow steps halved** (503 to 231) and the TPOT p99 cost at
-  16 requests/s fell from 36% to 28%, with TTFT p50 +6% instead of +11%.
-- **The TPOT p50 cost did not move** (17.6% to 17.0%), and host-delay
-  precision over all steps is still 0.04. In the open-loop runs, launches
+- **Spurious slow steps halved** (503 to 231).
+- **The latency cost did not measurably change.** At 16 requests/s the
+  median TPOT p99 went from 8.26 to 7.77 ms (+36% to +28% over no
+  collector) and TTFT p50 from 26.4 to 25.2 ms, but in both the ranges of
+  the five rounds overlap (7.77–8.40 against 7.34–7.93 ms; 25.9–26.7
+  against 24.8–25.9 ms), so these changes are within noise; so is TPOT
+  p50 (+17.6% to +17.0%). Host-delay precision over all steps is still
+  0.04. In the open-loop runs, launches
   over 100 µs fell from 104,247 to 11,277 in round 1, but their total time
   only from 25.1 s to 23.1 s: the long waits left are fewer and longer
   (median about 2 ms), all inside CUDA launch calls
