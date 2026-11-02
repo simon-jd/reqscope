@@ -14,7 +14,9 @@ find_package(Threads REQUIRED)
 include(GNUInstallDirs)
 add_library(reqscope_format STATIC format/json.cpp format/segment.cpp)
 target_include_directories(reqscope_format PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-add_library(reqscope_analyzer STATIC analyzer/analyzer.cpp)
+add_library(reqscope_analyzer STATIC analyzer/analyzer.cpp analyzer/records.cpp analyzer/clocks.cpp
+  analyzer/linking.cpp analyzer/blame.cpp analyzer/report.cpp analyzer/request_report.cpp
+  analyzer/explain.cpp analyzer/diff.cpp analyzer/perfetto.cpp)
 target_link_libraries(reqscope_analyzer PUBLIC reqscope_format)
 add_executable(reqscope cli/main.cpp cli/otel.cpp cli/client.cpp)
 target_link_libraries(reqscope PRIVATE reqscope_analyzer)
