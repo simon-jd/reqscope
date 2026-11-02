@@ -25,13 +25,17 @@ prefill, async scheduling):
   bursts of matrix multiplies from a separate CUDA process, and 200 ms stops
   of the engine process. Over 3 seeds and 27 events, trace-mode blame named
   the right cause for every event. Per slow step, recall is 0.77 / 1.00 /
-  1.00 for interference / GPU slowdown / host delay, and precision inside
-  the injection windows 1.00 / 1.00 / 0.56.
+  1.00 for interference / GPU slowdown / host delay, and precision over all
+  slow steps 0.90 / 1.00 / **0.04**: trace mode adds slow steps of its own
+  (231 outside the injection windows), and blame calls almost all of them
+  host delay. Counting only steps inside the windows, host-delay precision
+  is 0.56.
 - **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
   long prompts but calls every GPU burst and engine stop "undetermined" (0
   of 18). In a single-cause experiment membership alone is enough: six long
-  prompts against 16 decodes are found with per-step precision 1.00 and
-  recall 0.82, with or without CUPTI.
+  prompts against 16 decodes are the top six culprits in every run, with
+  per-step precision 1.00 and recall 0.69–0.86 across four paired runs
+  with and without CUPTI (0.82 in an earlier single run).
 - **Recording steps is free; tracing every kernel is not.** Under open-loop
   load at 8–24 requests/s, the plugin alone and the light collector stay
   within 1% of no collector on TPOT p50 and p99 (earlier build). Per-kernel
@@ -80,11 +84,11 @@ averaged 2.3–3.9 ([results/multicause-after.json](results/multicause-after.jso
 earlier round on a busier host (load 6.5–10.9, commit 60fca57) is in
 [results/multicause.json](results/multicause.json).
 
-| Injected cause | Trace: events found | Trace: step recall | Trace: step precision inside windows | Plugin only: events found | Plugin only: step recall |
-|---|---|---|---|---|---|
-| interference | 9 of 9 | 0.77 (27 of 35) | 1.00 | 9 of 9 | 0.84 (27 of 32) |
-| GPU slowdown | 9 of 9 | 1.00 (223 of 223) | 1.00 | 0 of 9 | 0 (all 221 undetermined) |
-| host delay | 9 of 9 | 1.00 (10 of 10) | 0.56 | 0 of 9 | 0 (all 9 undetermined) |
+| Injected cause | Trace: events found | Trace: step recall | Trace: step precision, all steps | Trace: step precision inside windows | Plugin only: events found | Plugin only: step recall |
+|---|---|---|---|---|---|---|
+| interference | 9 of 9 | 0.77 (27 of 35) | 0.90 (27 of 30) | 1.00 | 9 of 9 | 0.84 (27 of 32) |
+| GPU slowdown | 9 of 9 | 1.00 (223 of 223) | 1.00 | 1.00 | 0 of 9 | 0 (all 221 undetermined) |
+| host delay | 9 of 9 | 1.00 (10 of 10) | **0.04** (10 of 246) | 0.56 | 0 of 9 | 0 (all 9 undetermined) |
 
 Slow steps by true cause (rows) and blame's cause (columns), summed over
 the three seeds:
