@@ -30,6 +30,12 @@ prefill, async scheduling):
   (231 outside the injection windows), and blame calls almost all of them
   host delay. Counting only steps inside the windows, host-delay precision
   is 0.56.
+- **The GPU data's whole contribution is GPU slowdowns.** On the same
+  runs, a trivial rule (any co-scheduled prefill means interference,
+  anything else host delay) gets every interference verdict and every
+  verdict on trace mode's own slow steps the same as blame; with GPU data,
+  blame changes only the 223 steps during GPU bursts, from host delay to
+  GPU slowdown.
 - **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
   long prompts but calls every GPU burst and engine stop "undetermined" (0
   of 18). In a single-cause experiment membership alone is enough: six long
@@ -106,6 +112,34 @@ the three seeds:
 | GPU slowdown | 0 | 0 | 0 | 0 | 221 |
 | host delay | 0 | 0 | 0 | 0 | 9 |
 | no injected cause | 3 | 0 | 0 | 0 | 3 |
+
+**Against a trivial rule.** The rows below score the same slow steps of
+the same runs in the same way; only the cause each step gets differs
+(`bench/score_causes.py --rule`,
+[results/multicause-baselines.json](results/multicause-baselines.json)).
+The trivial rule calls a slow step interference if it had any co-scheduled
+prefill, and host delay otherwise. Precision is over all slow steps.
+
+| Rule | Runs | Interference recall / precision | GPU slowdown recall / precision | Host delay recall / precision | Events found |
+|---|---|---|---|---|---|
+| blame | trace | 0.77 / 0.90 | 1.00 / 1.00 | 1.00 / 0.04 | 27 of 27 |
+| trivial | trace | 0.77 / 0.90 | 0 / — | 1.00 / 0.02 | 18 of 27 |
+| blame | plugin only | 0.84 / 0.90 | 0 / — | 0 / — | 9 of 27 |
+| trivial | plugin only | 0.84 / 0.90 | 0 / — | 1.00 / 0.04 | 18 of 27 |
+
+What the GPU data adds over the trivial rule, on the same trace runs, is
+exactly one thing: the 223 slow steps during GPU bursts, which the trivial
+rule calls host delay, are called GPU slowdown, all of them correctly.
+That is why host-delay precision inside the windows rises from 0.04 to
+0.56. It changes no other verdict:
+- **Interference** is the same step for step (27 found, 8 missed, 3 false).
+  The 8 misses next to a long prompt have no co-scheduled prefill, and GPU
+  data does not change that. On plugin-only runs, blame gives the same
+  interference verdicts and calls everything else undetermined.
+- **Trace mode's own slow steps**: blame calls all 228 of them host delay,
+  as the trivial rule does. Over all steps, host-delay precision with GPU
+  data (0.04) is no better than the trivial rule without it (0.04 on the
+  plugin-only runs, which do not have those steps).
 
 The evidence behind the verdicts (medians over the earlier round's trace
 runs): during a GPU burst, a decode step's GPU busy time doubles (10.4 ms

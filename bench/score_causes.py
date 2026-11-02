@@ -1,6 +1,6 @@
 """Score blame's slow-step causes against the injected causes of multicause runs.
 
-    python bench/score_causes.py results/raw/multicause-trace-s1 results/raw/multicause-plugin-s1 ...
+    python bench/score_causes.py [--rule RULE] results/raw/multicause-trace-s1 results/raw/multicause-plugin-s1 ...
 
 For each run directory: runs `reqscope blame` on the capture unless
 blame.json exists, then reads the injected events from client.json, which
@@ -9,6 +9,14 @@ by the engine step that produced them; a step's predicted cause is the most
 common cause blame gave its gaps. Its true cause is the injected event whose
 window [start, end + 20 ms] overlaps the step's gap the most, or "none" when
 no event overlaps it (the run's own slow steps).
+
+--rule picks how a slow step's cause is predicted; the slow steps and the
+scoring are the same for every rule:
+- blame (default): the most common cause blame gave the step's gaps;
+- trivial: interference if the step had any co-scheduled prefill, else host
+  delay;
+- prefill_only: interference if the step had any co-scheduled prefill, else
+  undetermined: what per-step token counts alone can say.
 
 Per run and summed per collector mode:
 - the confusion matrix, true cause by predicted cause;
@@ -35,6 +43,7 @@ from score import mean_load, reqscope  # noqa: E402
 CAUSES = ["interference", "gpu_slowdown", "host_delay"]
 PREDICTED = CAUSES + ["unexplained", "undetermined"]
 SPILL_NS = 20_000_000
+RULES = ["blame", "trivial", "prefill_only"]
 
 
 def steps_of(blame: dict) -> dict[int, dict]:
@@ -45,9 +54,11 @@ def steps_of(blame: dict) -> dict[int, dict]:
         for gap in row["slow_gaps"]:
             if not gap["steps"]:
                 continue
-            entry = steps.setdefault(gap["steps"][0]["step_id"],
+            step = gap["steps"][0]
+            entry = steps.setdefault(step["step_id"],
                                      {"begin": gap["begin_ns"], "end": gap["end_ns"], "causes": Counter(),
-                                      "flagged": False})
+                                      "flagged": False,
+                                      "prefill": any(m["phase"] == "prefill" for m in step["co_scheduled"])})
             entry["causes"][gap["cause"]] += 1
             entry["flagged"] |= "collector_active" in gap.get("flags", [])
     return steps
@@ -60,6 +71,14 @@ def truth(step: dict, events: list[dict]) -> tuple[str, int | None]:
         if overlap > most:
             best, index, most = event["cause"], i, overlap
     return best, index
+
+
+def predict(rule: str, step: dict) -> str:
+    if rule == "blame":
+        return step["causes"].most_common(1)[0][0]
+    if step["prefill"]:
+        return "interference"
+    return "host_delay" if rule == "trivial" else "undetermined"
 
 
 def ratio(a: int, b: int) -> float | None:
@@ -87,7 +106,7 @@ def metrics(confusion: Counter, detected: Counter, injected: Counter, flagged: C
     return {"per_cause": per_cause, "confusion": matrix, "collector_active_flags": flags}
 
 
-def score(run: Path) -> tuple[dict, Counter, Counter, Counter, Counter]:
+def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Counter, Counter]:
     client = json.loads((run / "client.json").read_text())
     blame_path = run / "blame.json"
     if not blame_path.exists():
@@ -99,14 +118,14 @@ def score(run: Path) -> tuple[dict, Counter, Counter, Counter, Counter]:
     hits = defaultdict(set)
     for step in steps_of(blame).values():
         cause, index = truth(step, events)
-        predicted = step["causes"].most_common(1)[0][0]
+        predicted = predict(rule, step)
         confusion[(cause, predicted)] += 1
         flagged[(cause, predicted)] += step["flagged"]
         if index is not None and predicted == cause:
             hits[cause].add(index)
     for cause, found in hits.items():
         detected[cause] = len(found)
-    result = {"run": run.name, "mode": client["mode"], "seed": client["results"]["seed"],
+    result = {"run": run.name, "rule": rule, "mode": client["mode"], "seed": client["results"]["seed"],
               "load1_mean": mean_load(client.get("loadavg", []), client["started_ns"], client["ended_ns"]),
               "slow_steps": sum(confusion.values()), "trace_status": blame.get("trace", {}).get("status"),
               **metrics(confusion, detected, injected, flagged)}
@@ -114,18 +133,22 @@ def score(run: Path) -> tuple[dict, Counter, Counter, Counter, Counter]:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    rule = "blame"
+    if args[:1] == ["--rule"] and len(args) > 1:
+        rule, args = args[1], args[2:]
+    if not args or rule not in RULES:
         sys.exit(__doc__)
     runs, totals = [], defaultdict(lambda: [Counter(), Counter(), Counter(), Counter(), []])
-    for path in sys.argv[1:]:
-        result, confusion, detected, injected, flagged = score(Path(path))
+    for path in args:
+        result, confusion, detected, injected, flagged = score(Path(path), rule)
         runs.append(result)
         total = totals[result["mode"]]
         total[0].update(confusion); total[1].update(detected); total[2].update(injected); total[3].update(flagged)
         total[4].append(result["seed"])
     by_mode = {mode: {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i, f)}
                for mode, (c, d, i, f, seeds) in totals.items()}
-    print(json.dumps({"by_mode": by_mode, "runs": runs}, indent=2))
+    print(json.dumps({"rule": rule, "by_mode": by_mode, "runs": runs}, indent=2))
 
 
 if __name__ == "__main__":
