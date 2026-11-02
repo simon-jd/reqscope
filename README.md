@@ -38,8 +38,8 @@ prefill, async scheduling):
   GPU slowdown.
 - **Nsight Systems does as well.** In three runs under Nsight Systems,
   with the plugin's NVTX step ranges, a simple GPU-time rule also named
-  every event's cause, and those runs had 98 slow steps of their own
-  against trace mode's 231. vLLM's own per-step log separates GPU bursts
+  every event's cause, and those runs had 98 slow steps of their own, on
+  a busier host, against trace mode's 231. vLLM's own per-step log separates GPU bursts
   but calls 6 of 9 engine-stop steps GPU slowdown.
 - **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
   long prompts but calls every GPU burst and engine stop "undetermined" (0
