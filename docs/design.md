@@ -293,8 +293,8 @@ its memory budget (`REQSCOPE_TRACE_BUDGET_MIB`); it never truncates silently.
 
 ## Limits
 
-- One CUPTI subscriber (the V1 API): reqscope cannot run together with
-  Nsight Systems or `torch.profiler`.
+- One CUPTI subscriber (the V1 API): light and trace mode cannot run
+  together with Nsight Systems or `torch.profiler`; plugin-only mode can.
 - The record layouts are those of CUPTI API 130202 (CUDA 13.2). Any other
   version is refused rather than parsed with the wrong layout.
 - The vLLM plugin supports exactly vLLM 0.31.0 with the V2 model runner,

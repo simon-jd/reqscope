@@ -636,8 +636,9 @@ The tests run on CPU. They cover:
 - **Pinned versions.** CUPTI API 130202 (CUDA 13.2) and vLLM 0.31.0, with
   the V2 model runner, the uni executor and TP = PP = 1. Other versions are
   refused instead of parsed with the wrong layout.
-- **One CUPTI subscriber**, so it cannot run together with Nsight Systems
-  or `torch.profiler`.
+- **One CUPTI subscriber**, so light and trace mode cannot run together
+  with Nsight Systems or `torch.profiler`. The plugin alone can; the
+  Nsight Systems runs above used it.
 - **`analyze` and `explain` emit every elementary interval.** Each
   request's decomposition holds one interval per gap between GPU activity
   boundaries, so their output and memory grow with the GPU activity around
