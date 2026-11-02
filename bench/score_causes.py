@@ -26,6 +26,10 @@ Per run and summed per collector mode:
 - per cause: the share of injected events with at least one step given the
   right cause;
 - per run, the host's mean 1-minute load average during the run;
+- for steps blame gave their true cause, GPU slowdown or host delay, the
+  medians of the evidence behind the verdict (the first gap's
+  cause_evidence): GPU busy time and its baseline, launch wait and its
+  baseline, and host extra;
 - host-delay verdicts that blame flagged "collector_active" (the
   collector was busy for at least half of the host extra), by true cause,
   and host-delay precision over the verdicts that were not flagged.
@@ -35,6 +39,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 import json
 from pathlib import Path
+import statistics
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -43,6 +48,7 @@ from score import mean_load, reqscope  # noqa: E402
 CAUSES = ["interference", "gpu_slowdown", "host_delay"]
 PREDICTED = CAUSES + ["unexplained", "undetermined"]
 SPILL_NS = 20_000_000
+EVIDENCE = ["gpu_busy_ns", "gpu_busy_baseline_ns", "launch_wait_ns", "launch_wait_baseline_ns", "host_extra_ns"]
 RULES = ["blame", "trivial", "prefill_only"]
 
 
@@ -57,7 +63,7 @@ def steps_of(blame: dict) -> dict[int, dict]:
             step = gap["steps"][0]
             entry = steps.setdefault(step["step_id"],
                                      {"begin": gap["begin_ns"], "end": gap["end_ns"], "causes": Counter(),
-                                      "flagged": False,
+                                      "flagged": False, "evidence": gap.get("cause_evidence", {}),
                                       "prefill": any(m["phase"] == "prefill" for m in step["co_scheduled"])})
             entry["causes"][gap["cause"]] += 1
             entry["flagged"] |= "collector_active" in gap.get("flags", [])
@@ -85,6 +91,12 @@ def ratio(a: int, b: int) -> float | None:
     return round(a / b, 3) if b else None
 
 
+def medians(evidence: dict) -> dict:
+    return {cause: {"steps": len(values[EVIDENCE[0]]),
+                    **{f: statistics.median(values[f]) if values[f] else None for f in EVIDENCE}}
+            for cause, values in sorted(evidence.items())}
+
+
 def metrics(confusion: Counter, detected: Counter, injected: Counter, flagged: Counter) -> dict:
     per_cause = {}
     for cause in CAUSES:
@@ -106,7 +118,7 @@ def metrics(confusion: Counter, detected: Counter, injected: Counter, flagged: C
     return {"per_cause": per_cause, "confusion": matrix, "collector_active_flags": flags}
 
 
-def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Counter, Counter]:
+def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Counter, Counter, dict]:
     client = json.loads((run / "client.json").read_text())
     blame_path = run / "blame.json"
     if not blame_path.exists():
@@ -116,6 +128,7 @@ def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Count
     confusion, detected, injected = Counter(), Counter(), Counter(e["cause"] for e in events)
     flagged = Counter()
     hits = defaultdict(set)
+    evidence = defaultdict(lambda: defaultdict(list))
     for step in steps_of(blame).values():
         cause, index = truth(step, events)
         predicted = predict(rule, step)
@@ -123,13 +136,17 @@ def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Count
         flagged[(cause, predicted)] += step["flagged"]
         if index is not None and predicted == cause:
             hits[cause].add(index)
+        if rule == "blame" and predicted == cause and cause in ("gpu_slowdown", "host_delay"):
+            for field in EVIDENCE:
+                if step["evidence"].get(field) is not None:
+                    evidence[cause][field].append(step["evidence"][field])
     for cause, found in hits.items():
         detected[cause] = len(found)
     result = {"run": run.name, "rule": rule, "mode": client["mode"], "seed": client["results"]["seed"],
               "load1_mean": mean_load(client.get("loadavg", []), client["started_ns"], client["ended_ns"]),
               "slow_steps": sum(confusion.values()), "trace_status": blame.get("trace", {}).get("status"),
-              **metrics(confusion, detected, injected, flagged)}
-    return result, confusion, detected, injected, flagged
+              **metrics(confusion, detected, injected, flagged), "verdict_evidence_medians": medians(evidence)}
+    return result, confusion, detected, injected, flagged, evidence
 
 
 def main() -> None:
@@ -139,15 +156,20 @@ def main() -> None:
         rule, args = args[1], args[2:]
     if not args or rule not in RULES:
         sys.exit(__doc__)
-    runs, totals = [], defaultdict(lambda: [Counter(), Counter(), Counter(), Counter(), []])
+    runs, totals = [], defaultdict(lambda: [Counter(), Counter(), Counter(), Counter(), [],
+                                            defaultdict(lambda: defaultdict(list))])
     for path in args:
-        result, confusion, detected, injected, flagged = score(Path(path), rule)
+        result, confusion, detected, injected, flagged, evidence = score(Path(path), rule)
         runs.append(result)
         total = totals[result["mode"]]
         total[0].update(confusion); total[1].update(detected); total[2].update(injected); total[3].update(flagged)
         total[4].append(result["seed"])
-    by_mode = {mode: {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i, f)}
-               for mode, (c, d, i, f, seeds) in totals.items()}
+        for cause, fields in evidence.items():
+            for field, values in fields.items():
+                total[5][cause][field] += values
+    by_mode = {mode: {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i, f),
+                      "verdict_evidence_medians": medians(e)}
+               for mode, (c, d, i, f, seeds, e) in totals.items()}
     print(json.dumps({"rule": rule, "by_mode": by_mode, "runs": runs}, indent=2))
 
 

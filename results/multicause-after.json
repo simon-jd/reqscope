@@ -1,4 +1,5 @@
 {
+  "rule": "blame",
   "by_mode": {
     "trace": {
       "seeds": [
@@ -72,6 +73,24 @@
         },
         "host_delay_precision_unflagged": 0.036,
         "host_delay_recall_unflagged": 0.8
+      },
+      "verdict_evidence_medians": {
+        "gpu_slowdown": {
+          "steps": 223,
+          "gpu_busy_ns": 10435133,
+          "gpu_busy_baseline_ns": 5123084,
+          "launch_wait_ns": 9179301,
+          "launch_wait_baseline_ns": 3539759,
+          "host_extra_ns": 0
+        },
+        "host_delay": {
+          "steps": 10,
+          "gpu_busy_ns": 5501813.0,
+          "gpu_busy_baseline_ns": 5500441.0,
+          "launch_wait_ns": 4088864.0,
+          "launch_wait_baseline_ns": 3841448.5,
+          "host_extra_ns": 200444654.0
+        }
       }
     },
     "plugin": {
@@ -146,12 +165,14 @@
         },
         "host_delay_precision_unflagged": null,
         "host_delay_recall_unflagged": 0.0
-      }
+      },
+      "verdict_evidence_medians": {}
     }
   },
   "runs": [
     {
       "run": "multicause-after-trace-s1",
+      "rule": "blame",
       "mode": "trace",
       "seed": 1,
       "load1_mean": 2.94,
@@ -222,10 +243,29 @@
         },
         "host_delay_precision_unflagged": 0.023,
         "host_delay_recall_unflagged": 0.667
+      },
+      "verdict_evidence_medians": {
+        "gpu_slowdown": {
+          "steps": 73,
+          "gpu_busy_ns": 10232617,
+          "gpu_busy_baseline_ns": 4939005,
+          "launch_wait_ns": 9070359,
+          "launch_wait_baseline_ns": 3330161,
+          "host_extra_ns": 0
+        },
+        "host_delay": {
+          "steps": 3,
+          "gpu_busy_ns": 5648093,
+          "gpu_busy_baseline_ns": 5648993,
+          "launch_wait_ns": 3948916,
+          "launch_wait_baseline_ns": 3966737,
+          "host_extra_ns": 200322523
+        }
       }
     },
     {
       "run": "multicause-after-trace-s2",
+      "rule": "blame",
       "mode": "trace",
       "seed": 2,
       "load1_mean": 3.9,
@@ -296,10 +336,29 @@
         },
         "host_delay_precision_unflagged": 0.051,
         "host_delay_recall_unflagged": 1.0
+      },
+      "verdict_evidence_medians": {
+        "gpu_slowdown": {
+          "steps": 77,
+          "gpu_busy_ns": 11107884,
+          "gpu_busy_baseline_ns": 5808055,
+          "launch_wait_ns": 10118987,
+          "launch_wait_baseline_ns": 3936759,
+          "host_extra_ns": 0
+        },
+        "host_delay": {
+          "steps": 3,
+          "gpu_busy_ns": 6169609,
+          "gpu_busy_baseline_ns": 6169609,
+          "launch_wait_ns": 4062890,
+          "launch_wait_baseline_ns": 4362225,
+          "host_extra_ns": 200637073
+        }
       }
     },
     {
       "run": "multicause-after-trace-s3",
+      "rule": "blame",
       "mode": "trace",
       "seed": 3,
       "load1_mean": 2.36,
@@ -370,10 +429,29 @@
         },
         "host_delay_precision_unflagged": 0.039,
         "host_delay_recall_unflagged": 0.75
+      },
+      "verdict_evidence_medians": {
+        "gpu_slowdown": {
+          "steps": 73,
+          "gpu_busy_ns": 10357442,
+          "gpu_busy_baseline_ns": 5122038,
+          "launch_wait_ns": 8956296,
+          "launch_wait_baseline_ns": 3529601,
+          "host_extra_ns": 0
+        },
+        "host_delay": {
+          "steps": 4,
+          "gpu_busy_ns": 5351349.0,
+          "gpu_busy_baseline_ns": 5339106.0,
+          "launch_wait_ns": 4148860.5,
+          "launch_wait_baseline_ns": 3656565.0,
+          "host_extra_ns": 199753073.5
+        }
       }
     },
     {
       "run": "multicause-after-plugin-s1",
+      "rule": "blame",
       "mode": "plugin",
       "seed": 1,
       "load1_mean": 2.24,
@@ -444,10 +522,12 @@
         },
         "host_delay_precision_unflagged": null,
         "host_delay_recall_unflagged": 0.0
-      }
+      },
+      "verdict_evidence_medians": {}
     },
     {
       "run": "multicause-after-plugin-s2",
+      "rule": "blame",
       "mode": "plugin",
       "seed": 2,
       "load1_mean": 3.42,
@@ -518,10 +598,12 @@
         },
         "host_delay_precision_unflagged": null,
         "host_delay_recall_unflagged": 0.0
-      }
+      },
+      "verdict_evidence_medians": {}
     },
     {
       "run": "multicause-after-plugin-s3",
+      "rule": "blame",
       "mode": "plugin",
       "seed": 3,
       "load1_mean": 2.42,
@@ -592,7 +674,8 @@
         },
         "host_delay_precision_unflagged": null,
         "host_delay_recall_unflagged": 0.0
-      }
+      },
+      "verdict_evidence_medians": {}
     }
   ]
 }

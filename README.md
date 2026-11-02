@@ -141,12 +141,14 @@ That is why host-delay precision inside the windows rises from 0.04 to
   data (0.04) is no better than the trivial rule without it (0.04 on the
   plugin-only runs, which do not have those steps).
 
-The evidence behind the verdicts (medians over the earlier round's trace
-runs): during a GPU burst, a decode step's GPU busy time doubles (10.4 ms
-against 5.1 ms in nearby decode steps) and its first kernel starts 8.7 ms
-after its launch returns instead of 4.1 ms. During an engine stop the
-producing step's GPU work is normal (5.6 ms) and the gap holds 198 ms of
-host time after it.
+The evidence behind the correct verdicts (medians over the steps of the
+three trace runs, `verdict_evidence_medians` in
+[results/multicause-after.json](results/multicause-after.json)): during a
+GPU burst, a decode step's GPU busy time doubles (10.4 ms against 5.1 ms
+in comparable decode steps) and its shortest launch-to-kernel wait grows
+from 3.5 to 9.2 ms. During an engine stop the producing step's GPU work is
+normal (5.5 ms against 5.5 ms) and the gap holds 200 ms of extra host
+time.
 
 What does not work:
 - **Steps near a long prompt that are not its prefill.** 8 of the 35 slow
