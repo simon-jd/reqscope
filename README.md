@@ -449,26 +449,23 @@ What improved and what did not:
 
 ## Analysis speed
 
-On the 23 s, 0.9 GB capture above (2.06M records), with byte-identical
-output before and after. These timings, and the analysis figures under
-Limitations, were measured on the same host but are not recorded in
-`results/`. The one analysis time there, `blame_seconds` (28.9 s) in
-`results/interference.json`, was taken by `bench/score.py` with the
-analyzer from before these changes.
+`reqscope blame` reads the 23 s, 0.9 GB capture of the interference
+experiment (2.06M records) and reports on it in 10.5 s with 4.1 GB of
+memory: the median of three runs with the current build, on the shared
+host at a load average of 8.8
+([results/analysis-speed.json](results/analysis-speed.json), from
+`bench/analysis_speed.py`). The one earlier timing in `results/`,
+`blame_seconds` (28.9 s) in `results/interference.json`, was taken by
+`bench/score.py` with the analyzer from before the changes below; other
+timings of that analyzer were not recorded.
 
-| | Before | After |
-|---|---|---|
-| `blame`, whole capture | 28.8 s, 8.6 GB | **9.1 s, 4.2 GB** |
-| `analyze`, its last 11 MB | 57 s, 2.9 GB | **2.2 s, 2.1 GB** |
-| `analyze`, its last 27 MB | 157 s, 6.9 GB | **5.2 s, 4.8 GB** |
-
-| Cost | Cause | Fix |
-|---|---|---|
-| 5.5 of the 18 s spent reading the capture | A bitwise CRC32 over every frame | A slicing-by-8 table; the collector writes with it too |
-| Another 7 s of reading | One read and one allocation per frame, and a sort whose comparator copied two producer strings on each of 40M comparisons | One read per segment; ordering keys taken while parsing |
-| 2.3 KB per record in memory | JSON objects as `std::map`, and values sized by doubling | Members in one sorted vector, values sized exactly |
-| A quarter of `blame`'s memory | It built the dependency graph that only `analyze` reports | Built only when reported |
-| `analyze` grew with the square of the trace | Every elementary interval of a request rescanned all of its GPU activities, every token all intervals, every step all activities and syncs | One sweep over the intervals, a merge for the tokens, per-producer indexes |
+| Cause | Fix |
+|---|---|
+| A bitwise CRC32 over every frame | A slicing-by-8 table; the collector writes with it too |
+| One read and one allocation per frame, and a sort whose comparator copied two producer strings on each comparison | One read per segment; ordering keys taken while parsing |
+| JSON objects as `std::map`, and values sized by doubling | Members in one sorted vector, values sized exactly |
+| `blame` built the dependency graph that only `analyze` reports | Built only when reported |
+| `analyze` grew with the square of the trace: every elementary interval of a request rescanned all of its GPU activities, every token all intervals, every step all activities and syncs | One sweep over the intervals, a merge for the tokens, per-producer indexes |
 
 ## Reproduce
 
@@ -582,14 +579,14 @@ The tests run on CPU. They cover:
   refused instead of parsed with the wrong layout.
 - **One CUPTI subscriber**, so it cannot run together with Nsight Systems
   or `torch.profiler`.
-- **`analyze` and `explain` emit every elementary interval.** Their time now
-  grows linearly with the trace, but each request's decomposition holds one
-  interval per gap between GPU activity boundaries, so the last 59 MB of the
-  capture above already makes 1 GB of JSON and 10.6 GB of memory. On a full
-  long capture, use `blame`, or analyze a shorter window.
-- **JSON records.** Reading the capture above is 3.7 s of `blame`'s 9.1 s.
-  A binary encoding of the four record types that make up 99% of a trace
-  is the next step.
+- **`analyze` and `explain` emit every elementary interval.** Each
+  request's decomposition holds one interval per gap between GPU activity
+  boundaries, so their output and memory grow with the GPU activity around
+  each request and soon exceed the capture's size. On a full long capture,
+  use `blame`, or analyze a shorter window.
+- **JSON records.** The analyzer parses every record from JSON text. A
+  binary encoding of the four record types that make up 99% of a trace
+  ([results/captures.json](results/captures.json)) is the next step.
 - **Attribution is linear.** `blame` splits a gap's excess over co-scheduled
   prefill tokens. It does not model attention cost growing with context
   length.

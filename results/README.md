@@ -22,6 +22,7 @@ here are derived from them.
 | `openloop-trace-cost.json` | `openloop-before-trace-r1`, `openloop-after-trace-r1` | `bench/trace_cost.py` (both rates of round 1) |
 | `trace-cost.json` | `tracecost-{off,plugin,light,trace}`, then `tracecost-trace-text-dev32`, `-ecores` and `-flush1` | `bench/trace_cost.py`: one 40 s open-loop run at 16 requests/s each; the collector's CollectorStats, EngineCore thread samples, CUDA API durations, slow launches and graph-launch stalls |
 | `launch-cost.json` | `results/raw/launch-cost/*.json` | `bench/launch_cost.py`, one file per run, gathered with a `config` and `collector` label per run |
+| `analysis-speed.json` | `interference-s5` | `bench/analysis_speed.py`: three runs of `reqscope blame` on its capture, wall time and peak memory |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
 
 Notes:
@@ -29,7 +30,7 @@ Notes:
 - `blame_seconds` in `interference.json` (28.9 s) is the wall time of
   `reqscope blame` as built when the run was scored, before the reader and
   decomposition changes in the README's analysis-speed section. The
-  current build's time is not recorded here.
+  current build's time is in `analysis-speed.json`.
 - `loss_records: 1` with `loss_count: 0` is not a dropped record. The
   capture has no `Finalized` session record, because vLLM SIGKILLs
   EngineCore right after the final flush, and the analyzer records the open

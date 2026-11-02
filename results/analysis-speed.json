@@ -1,0 +1,26 @@
+{
+  "command": "reqscope blame",
+  "capture": "results/raw/interference-s5/capture",
+  "capture_bytes": 902740327,
+  "commit": "fabf15e",
+  "host_load1": 8.775390625,
+  "median_wall_s": 10.53,
+  "median_max_rss_mib": 4106,
+  "runs": [
+    {
+      "wall_s": 11.25,
+      "max_rss_mib": 4105,
+      "output_sha256": "dd52085c7accbd27bbc1c6bb017f5bc88efff0c29f3facd30d60e4a73de17a07"
+    },
+    {
+      "wall_s": 10.53,
+      "max_rss_mib": 4107,
+      "output_sha256": "dd52085c7accbd27bbc1c6bb017f5bc88efff0c29f3facd30d60e4a73de17a07"
+    },
+    {
+      "wall_s": 10.36,
+      "max_rss_mib": 4106,
+      "output_sha256": "dd52085c7accbd27bbc1c6bb017f5bc88efff0c29f3facd30d60e4a73de17a07"
+    }
+  ]
+}
