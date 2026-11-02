@@ -37,38 +37,45 @@ python3 -m tests.test_real_dag_edges --output dag-edges.json
 Graph replay identity alone does not verify graph DAG edges; replays whose
 edges the recordings cannot prove are listed as unresolved.
 
-`nsys_projection.py` independently projects reqscope NVTX membership onto an
-Nsight Systems SQLite export, for comparing reqscope with an Nsight Systems
-run of the plugin (`REQSCOPE_NVTX=1` marks each step with an NVTX range in
-the `reqscope` domain). No such comparison is included in `results/`.
+`nsys_projection.py` maps an Nsight Systems run of the plugin onto engine
+steps, without reqscope's collector or analyzer: with `REQSCOPE_NVTX=1` the
+plugin marks each step with an NVTX range in the `reqscope` domain whose
+text holds the step id, the phase and the step's members. The multi-cause benchmark uses it
+for its Nsight Systems runs (`bench/interference.py multicause --nsys`).
 
 ```sh
-python3 -m checker.nsys_projection recording.sqlite --output new-projection.json
+nsys export --type sqlite --output run.sqlite run.nsys-rep
+python3 -m checker.nsys_projection run.sqlite --steps --output steps.json   # GPU busy time per step
+python3 -m checker.nsys_projection run.sqlite --output projection.json       # every row and how it was matched
 python3 -m unittest discover -s tests -p test_nsys_projection.py -v
 ```
 
-The input is opened read-only. This checker requires Python 3.11 or newer to
-enforce SQLite's value/row length limit before allocation. A CUDA runtime API
-must be completely contained
-in one reqscope NVTX range on the same `globalTid`; GPU records then require a
-unique runtime `correlationId` in the same masked `globalPid`. This uses the
-Nsight export schema's runtime association contract/comment, not an enforced
-SQLite foreign key. A numeric collision in the separate DRIVER table is not a
-runtime identity candidate, and a driver-only match remains unknown. GPU times
-never select identities, and request IDs are preserved exactly.
+How records are matched. A CUDA runtime call belongs to a step when it lies
+entirely inside one reqscope NVTX range on the same thread. A kernel, copy,
+memset or whole-graph row belongs to that call when it has the same correlation id and comes
+from the same process. Nsight Systems documents this link between its
+tables, but SQLite does not enforce it, so the script assumes it. Driver API
+calls are not used for matching: a GPU record whose correlation id matches
+only a driver call stays unmatched. GPU timestamps never decide which step a
+record belongs to, and request ids are copied unchanged.
 
-The report retains source row IDs, NVTX payload fields and member JSON paths.
-Requests are scoped by process. Reused Step phases or conflicting members
-invalidate their ranges; ambiguous and unknown GPU records stay in the
-coverage denominator. Kernel, copy and memset counts and duration distributions
-are reported separately. Durations sum observed activity, including overlap
-and work shared by multiple requests; they do not measure exclusive request
-GPU time. Bounds cover combined input rows (`--max-rows`, default 2,000,000),
-SQLite value/row bytes before Python allocation (`--max-value-bytes`, 2 MiB),
-cumulative input and separately estimated membership expansion (`--max-bytes`,
-256 MiB each), and containment/correlation/member-projection work
-(`--max-work`, 10,000,000). Overflow fails explicitly without a completeness
-result. These are explicit work/data limits, not an exact Python RSS guarantee.
-Export metadata is retained when available; the fixed runtime association
-contract is assumed, without claiming compatibility with arbitrary future
-Nsight schemas. `--output` must name a new file.
+What it reports. Every row keeps its SQLite row id, so each match can be
+checked against the export. A range is invalid if its payload is malformed,
+if it is not closed on the thread that opened it, or if a step's two phases
+disagree on its members. A call inside two nested ranges, and a GPU record
+that matches no call or more than one, is counted as ambiguous or unknown
+rather than dropped. `--steps` gives each step's GPU busy time:
+the union of its matched records' intervals, so overlapping work counts
+once. Without `--steps`, durations are plain sums per request and count
+work shared by several requests once for each of them.
+
+Limits. The export is opened read-only, and Python 3.11 or newer is needed.
+The script stops with an error, instead of returning a partial result, if
+the input exceeds any of these: 2,000,000 rows read (`--max-rows`), 2 MiB in
+one SQLite value or row (`--max-value-bytes`), 256 MiB of input or of member
+lists copied onto matched rows (`--max-bytes`), or 10,000,000 comparisons while
+matching (`--max-work`). These limit the work done, not memory use exactly.
+The Nsight Systems runs of the multi-cause benchmark need
+`--max-bytes 8589934592 --max-work 200000000`. The table
+layout is that of the Nsight Systems version used here (2025.6); other
+versions may differ. `--output` must name a new file.
