@@ -16,7 +16,16 @@ scoring are the same for every rule:
 - trivial: interference if the step had any co-scheduled prefill, else host
   delay;
 - prefill_only: interference if the step had any co-scheduled prefill, else
-  undetermined: what per-step token counts alone can say.
+  undetermined: what per-step token counts alone can say;
+- vllm: vLLM's own per-step statistics (--vllm-iteration-log runs;
+  vllm-iterations.json from bench/vllm_iterations.py): interference if the
+  step had context (prefill) tokens; otherwise GPU slowdown if the step's
+  "iteration elapsed time", the engine's wait for the step's output,
+  exceeds the median of steps without context tokens by at least half the
+  step's excess, else host delay;
+- nsys: the same test on the step's GPU busy time measured by Nsight
+  Systems (--nsys runs; nsys-steps.json from checker.nsys_projection
+  --steps).
 
 Per run and summed per collector mode:
 - the confusion matrix, true cause by predicted cause;
@@ -49,7 +58,7 @@ CAUSES = ["interference", "gpu_slowdown", "host_delay"]
 PREDICTED = CAUSES + ["unexplained", "undetermined"]
 SPILL_NS = 20_000_000
 EVIDENCE = ["gpu_busy_ns", "gpu_busy_baseline_ns", "launch_wait_ns", "launch_wait_baseline_ns", "host_extra_ns"]
-RULES = ["blame", "trivial", "prefill_only"]
+RULES = ["blame", "trivial", "prefill_only", "vllm", "nsys"]
 
 
 def steps_of(blame: dict) -> dict[int, dict]:
@@ -63,10 +72,13 @@ def steps_of(blame: dict) -> dict[int, dict]:
             step = gap["steps"][0]
             entry = steps.setdefault(step["step_id"],
                                      {"begin": gap["begin_ns"], "end": gap["end_ns"], "causes": Counter(),
-                                      "flagged": False, "evidence": gap.get("cause_evidence", {}),
+                                      "flagged": False, "evidence": gap.get("cause_evidence", {}), "excess": 0,
                                       "prefill": any(m["phase"] == "prefill" for m in step["co_scheduled"])})
             entry["causes"][gap["cause"]] += 1
+            entry["excess"] = max(entry["excess"], gap["excess_ns"])
             entry["flagged"] |= "collector_active" in gap.get("flags", [])
+    for step_id, entry in steps.items():
+        entry["id"] = step_id
     return steps
 
 
@@ -79,12 +91,29 @@ def truth(step: dict, events: list[dict]) -> tuple[str, int | None]:
     return best, index
 
 
-def predict(rule: str, step: dict) -> str:
+def step_times(run: Path, rule: str) -> tuple[dict[int, int], int]:
+    """Per step id, the time the rule tests (ns), and its median over steps without prefill."""
+    if rule == "vllm":
+        rows = json.loads((run / "vllm-iterations.json").read_text())["steps"]
+        times = {r["step_id"]: r["elapsed_ns"] for r in rows}
+        plain = [r["elapsed_ns"] for r in rows if r["context_tokens"] == 0]
+    else:
+        rows = json.loads((run / "nsys-steps.json").read_text())["steps"]
+        times = {r["step_id"]: r["gpu_busy_ns"] for r in rows}
+        plain = [r["gpu_busy_ns"] for r in rows if r["prefill_tokens"] == 0]
+    return times, int(statistics.median(plain))
+
+
+def predict(rule: str, step: dict, times: dict[int, int], median: int) -> str:
     if rule == "blame":
         return step["causes"].most_common(1)[0][0]
     if step["prefill"]:
         return "interference"
-    return "host_delay" if rule == "trivial" else "undetermined"
+    if rule == "trivial":
+        return "host_delay"
+    if rule == "prefill_only" or step["id"] not in times:
+        return "undetermined"
+    return "gpu_slowdown" if times[step["id"]] - median >= step["excess"] / 2 else "host_delay"
 
 
 def ratio(a: int, b: int) -> float | None:
@@ -129,9 +158,10 @@ def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Count
     flagged = Counter()
     hits = defaultdict(set)
     evidence = defaultdict(lambda: defaultdict(list))
+    times, median = step_times(run, rule) if rule in ("vllm", "nsys") else ({}, 0)
     for step in steps_of(blame).values():
         cause, index = truth(step, events)
-        predicted = predict(rule, step)
+        predicted = predict(rule, step, times, median)
         confusion[(cause, predicted)] += 1
         flagged[(cause, predicted)] += step["flagged"]
         if index is not None and predicted == cause:
@@ -145,6 +175,7 @@ def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Count
     result = {"run": run.name, "rule": rule, "mode": client["mode"], "seed": client["results"]["seed"],
               "load1_mean": mean_load(client.get("loadavg", []), client["started_ns"], client["ended_ns"]),
               "slow_steps": sum(confusion.values()), "trace_status": blame.get("trace", {}).get("status"),
+              **({"rule_median_ns": median, "rule_steps_timed": len(times)} if times else {}),
               **metrics(confusion, detected, injected, flagged), "verdict_evidence_medians": medians(evidence)}
     return result, confusion, detected, injected, flagged, evidence
 

@@ -4,6 +4,7 @@
     python bench/interference.py overhead --mode off|plugin|light|trace --out results/raw/overhead-off
     python bench/interference.py openloop --mode off|plugin|light|trace --rates 8,16,24 --out results/raw/openloop-off-r1
     python bench/interference.py multicause --mode trace|plugin --seed 1 --out results/raw/multicause-trace-s1
+    python bench/interference.py multicause --mode plugin --nsys --vllm-iteration-log --seed 1 --out results/raw/multicause-nsys-s1
 
 interference
     16 decode streams generate 4,000 tokens each. Starting 2 s in, a
@@ -106,6 +107,11 @@ def server(args, out: Path) -> subprocess.Popen:
             env.update({"CUDA_INJECTION64_PATH": str(library), "REQSCOPE_MODE": args.mode,
                         "REQSCOPE_CUPTI_BUFFERS": "256"})
         env.update(args.collector_env)
+    if args.nsys:
+        # Nsight Systems brings its own CUPTI; the plugin marks each step with
+        # an NVTX range carrying its step id and members.
+        env.pop("LD_PRELOAD")
+        env.update({"REQSCOPE_NVTX": "1", "TMPDIR": str(nsys_tmp(out))})
     # A local model directory is used as is; a Hub id is pinned to --revision.
     pinned = [] if Path(args.model).is_dir() else ["--revision", args.revision, "--tokenizer-revision", args.revision]
     command = [str(args.python), "-B", "-m", "vllm.entrypoints.cli.main", "serve", args.model, *pinned,
@@ -114,8 +120,34 @@ def server(args, out: Path) -> subprocess.Popen:
                "--dtype", "bfloat16", "--max-model-len", "8192", "--max-num-seqs", "32",
                "--max-num-batched-tokens", "2048", "--gpu-memory-utilization", str(args.gpu_memory_utilization),
                "--no-enable-prefix-caching", "--seed", "42"]
+    if args.vllm_iteration_log:
+        command.append("--enable-logging-iteration-details")   # one log line per engine step
+    if args.nsys:
+        command = [str(args.nsys_bin), "launch", f"--session-new={nsys_session(args)}", "--trace=cuda,nvtx",
+                   "--cuda-graph-trace=graph", *command]
     log = open(out / "server.log", "w")
     return subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+
+
+def nsys_tmp(out: Path) -> Path:
+    """Nsight Systems' temporary files, next to the run directory rather than in RAM-backed /tmp.
+
+    The server inherits TMPDIR and puts its ZeroMQ sockets there, whose paths must stay
+    under 108 bytes, so the directory name is short.
+    """
+    path = out.resolve().parent / "nsys-tmp"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+def nsys_session(args) -> str:
+    return f"reqscope-{os.getpid()}"
+
+
+def nsys(args, *command: str) -> None:
+    """Run an Nsight Systems session command; its temporary files stay in the run directory."""
+    subprocess.run([str(args.nsys_bin), *command, f"--session={nsys_session(args)}"], check=True, timeout=900,
+                   env={**os.environ, "TMPDIR": str(nsys_tmp(args.out))})
 
 
 def wait_ready(process: subprocess.Popen, port: int, timeout: float = 600) -> None:
@@ -444,7 +476,15 @@ def parse_args(argv=None):
     parser.add_argument("--ring-bytes", type=int, default=8 << 30, help="collector ring size on disk")
     parser.add_argument("--collector-env", action="append", default=[], metavar="KEY=VALUE",
                         help="extra REQSCOPE_* setting for the collector (repeatable; recorded in client.json)")
+    parser.add_argument("--nsys", action="store_true",
+                        help="trace the server's CUDA calls with Nsight Systems during the load (needs --mode plugin)")
+    parser.add_argument("--vllm-iteration-log", action="store_true",
+                        help="have vLLM log its own statistics for every engine step to server.log")
+    parser.add_argument("--nsys-bin", type=Path, default=None, help="nsys executable (default: CUDA's bin/nsys)")
     args = parser.parse_args(argv)
+    if args.nsys and args.mode != "plugin":
+        parser.error("--nsys needs --mode plugin: CUPTI takes one subscriber")
+    args.nsys_bin = args.nsys_bin or args.cuda / "bin" / "nsys"
     if any(not item.startswith("REQSCOPE_") or "=" not in item for item in args.collector_env):
         parser.error("--collector-env takes REQSCOPE_KEY=VALUE")
     args.collector_env = dict(item.split("=", 1) for item in args.collector_env)
@@ -472,10 +512,14 @@ def main() -> None:
             wait_ready(process, args.port)
             args.server_pid = process.pid
             asyncio.run(stream_warmup(args.port))
+            if args.nsys:
+                nsys(args, "start", "--sample=none", "--cpuctxsw=none", f"--output={(args.out / 'nsys').resolve()}")
             with thread_samples(engine_core(process.pid), threads):
                 started = time.monotonic_ns()
                 results = asyncio.run(run(args))
                 ended = time.monotonic_ns()
+            if args.nsys:
+                nsys(args, "stop")
             if args.mode != "off" and not flush_collectors(process.pid):
                 raise RuntimeError("no collector control socket found under the server")
         finally:
@@ -489,7 +533,7 @@ def main() -> None:
         "experiment": args.experiment, "mode": args.mode, "seed": args.seed, "round": args.round,
         "model": args.model, "revision": args.revision, "gpu_memory_utilization": args.gpu_memory_utilization,
         "started_ns": started, "ended_ns": ended, "loadavg": load, "threads": threads,
-        "collector_env": args.collector_env,
+        "collector_env": args.collector_env, "nsys": args.nsys, "vllm_iteration_log": args.vllm_iteration_log,
         "results": results}))
     print(args.out)
 

@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from checker.nsys_projection import GLOBAL_PID_MASK, ProjectionError, project_sqlite
+from checker.nsys_projection import GLOBAL_PID_MASK, ProjectionError, project_sqlite, step_gpu
 
 
 class NsysProjectionTests(unittest.TestCase):
@@ -350,6 +350,33 @@ class NsysProjectionTests(unittest.TestCase):
         self.db.execute("DROP TABLE CUPTI_ACTIVITY_KIND_RUNTIME")
         with self.assertRaisesRegex(ProjectionError, "missing required tables"):
             self.report()
+
+    def test_step_gpu_busy_is_the_union_of_linked_intervals(self):
+        self.nvtx(start=10, end=50, step=1)
+        self.api(corr=7, start=20, end=30)
+        self.api(corr=8, start=31, end=40)
+        self.kernel(corr=7, start=100, end=140)
+        self.kernel(corr=8, start=120, end=160)    # overlaps the first: counted once
+        self.nvtx(start=60, end=90, step=2, payload=json.dumps({"step_id": 2, "phase": "execute_model", "members": [
+            {"req_id": "a", "tokens": 1, "phase": "decode"}, {"req_id": "b", "tokens": 512, "phase": "prefill"}]}))
+        self.api(corr=9, start=70, end=80)
+        self.kernel(corr=9, start=200, end=205)
+        self.kernel(corr=999, start=300, end=400)  # unlinked: not counted
+        steps = step_gpu(self.report())["steps"]
+        self.assertEqual([(s["step_id"], s["gpu_busy_ns"], s["activities"], s["prefill_tokens"]) for s in steps],
+                         [(1, 60, 2, 0), (2, 5, 1, 512)])
+
+    def test_whole_graph_rows_link_like_kernels(self):
+        self.db.execute("CREATE TABLE CUPTI_ACTIVITY_KIND_GRAPH_TRACE(start INTEGER,end INTEGER,deviceId INTEGER,"
+                        "contextId INTEGER,streamId INTEGER,correlationId INTEGER,globalPid INTEGER,graphId INTEGER,"
+                        "graphExecId INTEGER)")
+        self.nvtx(start=10, end=50, step=3)
+        self.api(corr=7, start=20, end=30)
+        self.db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_GRAPH_TRACE VALUES(100,180,0,1,7,7,?,5,6)", (self.pid,))
+        report = self.report()
+        graph = [a for a in report["gpu_activities"] if a["kind"] == "graph"]
+        self.assertEqual([(a["status"], a["step_id"]) for a in graph], [("linked", 3)])
+        self.assertEqual([(s["step_id"], s["gpu_busy_ns"]) for s in step_gpu(report)["steps"]], [(3, 80)])
 
     def test_cli_refuses_to_overwrite_existing_evidence(self):
         self.db.commit()

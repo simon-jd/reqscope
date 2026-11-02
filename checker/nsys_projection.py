@@ -18,6 +18,8 @@ GPU_TABLES = {
     "CUPTI_ACTIVITY_KIND_KERNEL": "kernel",
     "CUPTI_ACTIVITY_KIND_MEMCPY": "memcpy",
     "CUPTI_ACTIVITY_KIND_MEMSET": "memset",
+    # With --cuda-graph-trace=graph (the default) a graph launch is one row.
+    "CUPTI_ACTIVITY_KIND_GRAPH_TRACE": "graph",
 }
 
 
@@ -425,6 +427,36 @@ def project_sqlite(path, *, max_rows=2_000_000, max_bytes=256 * 1024**2,
         connection.close()
 
 
+def step_gpu(report):
+    """Per step: GPU busy time, the union of the step's linked GPU intervals, and its prefill tokens.
+
+    Only linked activities with valid timing count; overlapping activities
+    (other streams, or work shared by the step's requests) count once.
+    """
+    spans, prefill = defaultdict(list), {}
+    for row in report["gpu_activities"]:
+        if row["status"] == "linked" and row["timing_status"] == "valid":
+            spans[(row["global_pid"], row["step_id"])].append((row["start_ns"], row["end_ns"]))
+            prefill[(row["global_pid"], row["step_id"])] = sum(
+                m.get("tokens", 0) for m in row["members"] if m.get("phase") == "prefill")
+    steps = []
+    for (pid, step), group in sorted(spans.items()):
+        busy, end = 0, None
+        for start, stop in sorted(group):
+            if end is None or start > end:
+                busy += stop - start
+                end = stop
+            elif stop > end:
+                busy += stop - end
+                end = stop
+        steps.append({"global_pid": pid, "step_id": step, "gpu_busy_ns": busy, "activities": len(group),
+                      "prefill_tokens": prefill[(pid, step)]})
+    return {"schema_version": 1, "source": report["source"]["sqlite"],
+            "gpu_summary": {k: v for k, v in report["gpu_summary"].items() if k != "by_status_duration_ns"},
+            "runtime_summary": report["runtime_summary"], "nvtx_summary": report["nvtx_summary"],
+            "steps": steps}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sqlite", type=Path)
@@ -433,12 +465,16 @@ def main():
     parser.add_argument("--max-bytes", type=int, default=256 * 1024**2)
     parser.add_argument("--max-value-bytes", type=int, default=2 * 1024**2)
     parser.add_argument("--max-work", type=int, default=10_000_000)
+    parser.add_argument("--steps", action="store_true",
+                        help="write only each step's GPU busy time and the coverage summaries")
     args = parser.parse_args()
     try:
         report = project_sqlite(args.sqlite, max_rows=args.max_rows, max_bytes=args.max_bytes,
                                 max_value_bytes=args.max_value_bytes, max_work=args.max_work)
     except (ProjectionError, sqlite3.Error, OSError) as exc:
         parser.exit(2, f"projection failed: {exc}\n")
+    if args.steps:
+        report = step_gpu(report)
     document = json.dumps(report, indent=2, allow_nan=False) + "\n"
     if args.output:
         try:
