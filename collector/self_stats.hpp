@@ -23,9 +23,11 @@ enum class Site : unsigned {
     write_record,       // writer: frame one record into the segment buffer
     rotate_segment,     // writer: close a segment and enforce retention
     probe_tick,         // clock probe: one bracketed copy
+    switch_granularity, // sampled mode: kernel tracing on or off at a step push
+    sampled_flush,      // sampled mode: the writer's periodic forced CUPTI flush
     count };
 inline constexpr const char* site_names[] = {"buffer_request", "buffer_complete", "resource_callback",
-    "emit_json", "push_step", "pop_step", "process_buffer", "write_record", "rotate_segment", "probe_tick"};
+    "emit_json", "push_step", "pop_step", "process_buffer", "write_record", "rotate_segment", "probe_tick", "switch_granularity", "sampled_flush"};
 static_assert(std::size(site_names) == static_cast<size_t>(Site::count));
 
 struct SiteStats {

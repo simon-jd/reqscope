@@ -258,6 +258,29 @@ assert lib.reqscope_flush() == 0
         self.assertEqual(blame.returncode, 0, blame.stderr)
         self.assertIsNone(json.loads(blame.stdout)["clocks"][0]["clock_error_ns"])
 
+    def test_sampled_mode_records_its_sampling_rules(self):
+        self.env.update(REQSCOPE_MODE="sampled", REQSCOPE_TRACE_TRIGGER_PERCENT="150", REQSCOPE_TRACE_WINDOW="8")
+        self.child('assert emit("r") == 0\nassert lib.reqscope_flush() == 0\n')
+        [header] = read_run(self.output).headers.values()
+        self.assertEqual(header["mode"], "sampled")
+        self.assertEqual(header["trace_sampling"], {"every": 0, "trigger_percent": 150, "window": 8,
+                                                    "cupti_flush_ms": 200})
+        self.assertTrue(header["gpu_granularity"].startswith("node on the steps named by TracedStep records"))
+        # Neither rule given: one step in 16.
+        self.env.pop("REQSCOPE_TRACE_TRIGGER_PERCENT")
+        self.output = self.root / "default"
+        self.env.update(REQSCOPE_OUTPUT=str(self.output), REQSCOPE_SOCKET=str(self.root / "default.sock"))
+        self.child('assert emit("r") == 0\nassert lib.reqscope_flush() == 0\n')
+        [header] = read_run(self.output).headers.values()
+        self.assertEqual(header["trace_sampling"], {"every": 16, "trigger_percent": 0, "window": 8,
+                                                    "cupti_flush_ms": 200})
+        # A trigger at or below the median itself is refused.
+        self.env.update(REQSCOPE_TRACE_TRIGGER_PERCENT="100", REQSCOPE_OUTPUT=str(self.root / "refused"),
+                        REQSCOPE_SOCKET=str(self.root / "refused.sock"))
+        result = subprocess.run([sys.executable, "-c", BOOTSTRAP], env=self.env, text=True, capture_output=True,
+                                timeout=20)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_writer_failure_stops_the_plugin_without_raising_into_the_engine(self):
         # A file-size limit makes the writer's first drain fail with EFBIG, the
         # way a full disk fails a write.

@@ -37,10 +37,10 @@ constexpr size_t max_json_size = 65536;
 constexpr size_t reason_count = static_cast<size_t>(LossReason::count);
 constexpr const char* reason_names[] = {"queue_full", "oversize_record", "malformed_record",
     "cupti_pool_exhausted", "cupti_completed_queue_full", "cupti_dropped", "cupti_parse_error",
-    "correlation_error", "graph_metadata_error"};
+    "correlation_error", "graph_metadata_error", "sampling_switch_error"};
 constexpr const char* reason_count_units[] = {"records", "records", "records",
     "buffer_requests", "buffers", "CUPTI-reported-activity-records", "errors",
-    "errors", "errors"};
+    "errors", "errors", "errors"};
 static_assert(std::size(reason_names) == reason_count && std::size(reason_count_units) == reason_count);
 struct Pending {
     enum Kind { json, cupti, graph_resource } kind = json;
@@ -130,6 +130,8 @@ public:
     uint64_t started_ns = 0, last_stats = 0, writer_sleep_ns = 0;
     const uint64_t ring_ns, ring_bytes, target_segment_bytes;
     const uint64_t slow_step_ns, max_triggers;
+    SamplerConfig sampling;
+    uint64_t cupti_flush_ns = 0, last_cupti_flush = 0;
     uint64_t trigger_count = 0, last_trigger = 0, pending_trigger = 0;
     std::unique_ptr<SegmentWriter> writer;
     Segment current;
@@ -149,8 +151,20 @@ public:
         output = fs::absolute(env_string("REQSCOPE_OUTPUT", "reqscope-run"));
         fs::create_directories(output);
         mode = env_string("REQSCOPE_MODE", "light");
-        if (mode != "light" && mode != "trace" && mode != "synthetic" && mode != "manual" && mode != "plugin")
-            throw std::runtime_error("REQSCOPE_MODE must be light, trace, plugin, synthetic, or manual");
+        if (mode != "light" && mode != "trace" && mode != "sampled" && mode != "synthetic" && mode != "manual" &&
+            mode != "plugin")
+            throw std::runtime_error("REQSCOPE_MODE must be light, trace, sampled, plugin, synthetic, or manual");
+        // Sampled mode: one step in REQSCOPE_TRACE_EVERY, and/or the next
+        // REQSCOPE_TRACE_WINDOW steps after a decode-only step's interval
+        // reaches REQSCOPE_TRACE_TRIGGER_PERCENT of the recent median.
+        sampling.every = env_number("REQSCOPE_TRACE_EVERY", 0, 0, 1000000);
+        sampling.trigger_percent = env_number("REQSCOPE_TRACE_TRIGGER_PERCENT", 0, 0, 100000);
+        sampling.window = env_number("REQSCOPE_TRACE_WINDOW", 32, 1, 1000000);
+        if (sampling.trigger_percent && sampling.trigger_percent <= 100)
+            throw std::runtime_error("REQSCOPE_TRACE_TRIGGER_PERCENT must be 0 or above 100");
+        if (mode == "sampled" && !sampling.every && !sampling.trigger_percent) sampling.every = 16;
+        // Sampled mode flushes CUPTI every REQSCOPE_CUPTI_FLUSH_MS (backend_periodic_flush).
+        if (mode == "sampled") cupti_flush_ns = env_number("REQSCOPE_CUPTI_FLUSH_MS", 200, 10, 60000) * 1000000ULL;
         std::string boot = read_line("/proc/sys/kernel/random/boot_id");
         const uint64_t ticks = process_start();
         producer = boot + ":" + std::to_string(owner) + ":" + std::to_string(ticks);
@@ -184,7 +198,7 @@ public:
     }
     void start() {
         instance.store(this, std::memory_order_release);
-        backend = backend_start(env_string("REQSCOPE_BACKEND", "") == "manual" ? "manual" : mode);
+        backend = backend_start(env_string("REQSCOPE_BACKEND", "") == "manual" ? "manual" : mode, sampling);
         // Manual and synthetic records share one clock by construction. A
         // plugin-only capture has no GPU records at all, so it has no GPU
         // clock bound: clock_error_ns stays absent rather than 0.
@@ -197,7 +211,13 @@ public:
         header["slow_step_threshold_ns"] = slow_step_ns;
         header["max_automatic_snapshots"] = max_triggers;
         header["gpu_granularity"] = mode == "light" ? "graph-envelope; eager kernels not traced"
-            : mode == "plugin" ? "none" : "node";
+            : mode == "plugin" ? "none"
+            : mode == "sampled" ? "node on the steps named by TracedStep records; copies only on the others"
+            : "node";
+        if (mode == "sampled")
+            header["trace_sampling"] = Json::object({{"every", sampling.every},
+                {"trigger_percent", sampling.trigger_percent}, {"window", sampling.window},
+                {"cupti_flush_ms", cupti_flush_ns / 1000000ULL}});
         header["libcupti_path"] = backend.path;
         header["libcupti_version"] = uint64_t(backend.version);
         header["cupti_host_buffer_count"] = backend.host_buffer_count;
@@ -264,6 +284,17 @@ public:
         }
         current.last_seq = sequence;
         current.end = monotonic_ns();
+        if (mode == "sampled" && record.string("type") == "Step" && record["t_begin"].is_number() &&
+            record["step_id"].is_number()) {
+            try {
+                bool prefill = false;
+                if (record.contains("members") && record["members"].is_array())
+                    for (const auto& member : record["members"].array_items())
+                        prefill |= member.is_object() && member.contains("phase") && member["phase"].is_string() &&
+                                   member.string("phase") == "prefill";
+                backend_step_record(record.integer("step_id"), record.integer("t_begin"), prefill);
+            } catch (const std::exception&) { note_loss(LossReason::malformed_record); }
+        }
         if (slow_step_ns && record.string("type") == "Step" &&
             record["t_begin"].is_number() && record["t_end"].is_number() && record["step_id"].is_number()) {
             try {
@@ -385,14 +416,16 @@ public:
                 {"max_ns", site.max_ns.load(std::memory_order_relaxed)},
                 {"engine_calls", site.engine_calls.load(std::memory_order_relaxed)}});
         }
-        emit(Json::object({{"type", "CollectorStats"}, {"sites", std::move(sites)},
+        Json record = Json::object({{"type", "CollectorStats"}, {"sites", std::move(sites)},
             {"timestamp_callbacks", stats.timestamp_callbacks.load(std::memory_order_relaxed)},
             {"cupti_records", stats.cupti_records.load(std::memory_order_relaxed)},
             {"cupti_bytes", stats.cupti_bytes.load(std::memory_order_relaxed)},
             {"writer_cpu_ns", thread_cpu_ns()}, {"writer_sleep_ns", writer_sleep_ns},
             {"writer_short_bursts", short_bursts},
             {"probe_cpu_ns", stats.probe_cpu_ns.load(std::memory_order_relaxed)},
-            {"since_ns", started_ns}}), false);
+            {"since_ns", started_ns}});
+        if (mode == "sampled") record["sampling_triggers"] = backend_sampling_triggers();
+        emit(std::move(record), false);
         last_stats = monotonic_ns();
     }
     bool drain_one() {
@@ -526,6 +559,9 @@ public:
                     close_segment(); enforce_retention();
                 }
                 if (monotonic_ns() - last_stats >= 1000000000ULL) report_stats();
+                if (cupti_flush_ns && monotonic_ns() - last_cupti_flush >= cupti_flush_ns &&
+                    backend_periodic_flush(monotonic_ns() - last_cupti_flush, 10 * cupti_flush_ns))
+                    last_cupti_flush = monotonic_ns();
                 const auto requested = flush_requested.load();
                 if (requested > flush_completed.load() && queue.empty()) {
                     report_stats();

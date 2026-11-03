@@ -190,8 +190,8 @@ int run(int argc, char **argv) {
   }
   if (!command || command >= argc)
     throw std::runtime_error("run requires -- <command>");
-  if (mode != "light" && mode != "trace")
-    throw std::runtime_error("mode must be light or trace");
+  if (mode != "light" && mode != "trace" && mode != "sampled")
+    throw std::runtime_error("mode must be light, trace or sampled");
   if (!ring || ring > 86400)
     throw std::runtime_error("ring-seconds must be 1..86400");
   if (output.empty())
@@ -314,7 +314,7 @@ int run(int argc, char **argv) {
 int main(int argc, char **argv) {
   try {
     if (argc < 2 || std::string(argv[1]) == "--help") {
-      std::cout << "reqscope 0.1.0\n  run --mode light|trace [--ring-seconds "
+      std::cout << "reqscope 0.1.0\n  run --mode light|trace|sampled [--ring-seconds "
                    "N] [--output DIR] -- COMMAND...\n  dump --pid PID [--last "
                    "30s] [--timeout-seconds 30] [--output DIR]\n  inspect RUN [--output FILE]\n  analyze RUN [--output FILE]\n  "
                    "explain RUN --request ID [--output FILE]\n  blame RUN [--request ID] [--output FILE]\n  diff RUN_A "

@@ -35,6 +35,11 @@ namespace {
 std::atomic<bool> active{false};
 bool graph_mode = false;
 thread_local unsigned correlation_depth = 0;
+// Sampled mode: light mode's records without graph envelopes, with kernel
+// tracing switched on for the steps the sampler picks (docs/design.md,
+// "Sampled tracing"). Only the engine thread switches.
+bool sampled_mode = false;
+TraceSampler sampler;
 #ifdef REQSCOPE_HAS_CUPTI
 constexpr size_t buffer_size = 256 * 1024;
 size_t buffer_count = 0;
@@ -48,6 +53,7 @@ struct alignas(16) Buffer {
 // can run late teardown callbacks after our atexit drain; there is no verified
 // callback-unregister/quiescence contract that would make delete[] safe.
 Buffer* buffers = nullptr;
+bool kernels_on = false;    // sampled mode: kernel tracing is on now
 CUpti_SubscriberHandle subscriber{};
 bool subscribed = false;
 std::vector<CUpti_ActivityKind> enabled;
@@ -253,9 +259,11 @@ Json graph_resource_json(const GraphResource& event) {
         {"tid", event.tid}, {"timestamp", event.timestamp}, {"ids_valid", event.ids_valid}});
 }
 
-BackendInfo backend_start(const std::string& mode) {
+BackendInfo backend_start(const std::string& mode, const SamplerConfig& sampling) {
     BackendInfo info;
     graph_mode = mode == "light";
+    sampled_mode = mode == "sampled";
+    if (sampled_mode) sampler.configure(sampling);
     if (mode == "synthetic" || mode == "manual" || mode == "plugin") {
         info.status = "manual"; return info;
     }
@@ -372,7 +380,7 @@ BackendInfo backend_start(const std::string& mode) {
         CUPTI_ACTIVITY_KIND_DRIVER, CUPTI_ACTIVITY_KIND_RUNTIME,
         CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION, CUPTI_ACTIVITY_KIND_MEMCPY,
         CUPTI_ACTIVITY_KIND_MEMSET, CUPTI_ACTIVITY_KIND_SYNCHRONIZATION, CUPTI_ACTIVITY_KIND_CUDA_EVENT,
-        mode == "light" ? CUPTI_ACTIVITY_KIND_GRAPH_TRACE : CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL};
+        mode == "trace" ? CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL : CUPTI_ACTIVITY_KIND_GRAPH_TRACE};
     // Both modes record only the APIs that submit work, move data or
     // synchronize, enabled one callback ID at a time. Query APIs that torch
     // and Triton issue around every launch (cudaGetDevice,
@@ -384,6 +392,10 @@ BackendInfo backend_start(const std::string& mode) {
     for (const auto kind : kinds) {
         if (api_subset && (kind == CUPTI_ACTIVITY_KIND_DRIVER || kind == CUPTI_ACTIVITY_KIND_RUNTIME))
             continue;
+        // Kernel tracing in sampled mode is switched per step, and graph
+        // envelopes are not recorded at all: once kernel tracing had been on,
+        // CUPTI gave vLLM's graph launches no graph records again.
+        if (sampled_mode && kind == CUPTI_ACTIVITY_KIND_GRAPH_TRACE) continue;
         result = cuptiActivityEnable(kind);
         if (result != CUPTI_SUCCESS) return fail("cuptiActivityEnable kind=" + std::to_string(int(kind)), result);
         enabled.push_back(kind);
@@ -434,6 +446,27 @@ void backend_flush() noexcept {
     }
 #endif
 }
+// Sampled mode, writer thread. With kernel tracing switched on and off at
+// run time, CUPTI holds every activity buffer of vLLM's engine until a
+// forced flush (a default flush returns none of them), so the writer forces
+// one periodically. A forced flush also returns records of GPU work still
+// running, without timestamps; to keep traced steps whole, it waits until
+// the engine has pushed kSettleSteps steps since the last traced one, or
+// until it has waited max_wait_ns.
+constexpr uint64_t kSettleSteps = 3;
+bool backend_periodic_flush(uint64_t waited_ns, uint64_t max_wait_ns) noexcept {
+#ifdef REQSCOPE_HAS_CUPTI
+    if (!sampled_mode || !active.load()) return false;
+    if (!sampler.settled(kSettleSteps) && waited_ns < max_wait_ns) return false;
+    Timed timed(Site::sampled_flush);
+    if (cuptiActivityFlushAll(CUPTI_ACTIVITY_FLAG_FLUSH_FORCED) != CUPTI_SUCCESS)
+        note_loss(LossReason::cupti_parse_error);
+    return true;
+#else
+    (void)waited_ns; (void)max_wait_ns;
+    return false;
+#endif
+}
 void backend_stop() noexcept {
 #ifdef REQSCOPE_HAS_CUPTI
     clock_probe.stop();      // its last copy must be flushed with everything else
@@ -441,6 +474,7 @@ void backend_stop() noexcept {
         backend_flush();
         disable_api_subset();
         for (auto kind : enabled) cuptiActivityDisable(kind);
+        if (kernels_on) cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL);
         backend_flush();
         active.store(false);
         enabled.clear();
@@ -448,8 +482,44 @@ void backend_stop() noexcept {
     if (subscribed) { cuptiUnsubscribe(subscriber); subscribed = false; }
 #endif
 }
+#ifdef REQSCOPE_HAS_CUPTI
+// Sampled mode: every kernel, or none, for the launches that follow until
+// the next switch. CUPTI decides at launch, so switching between steps on the
+// launching thread gives each step one granularity.
+bool switch_kernels(bool on) noexcept {
+    if (on == kernels_on) return true;
+    Timed timed(Site::switch_granularity);
+    const auto result = on ? cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL)
+                           : cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL);
+    if (result != CUPTI_SUCCESS) return false;
+    kernels_on = on;
+    return true;
+}
+// The first push of each step id decides its granularity. A traced step is
+// named by a TracedStep record, written only once tracing is on: a step
+// without one was not traced (or its record was lost, and the analyzer
+// treats it as not traced).
+void sample(uint64_t step) noexcept {
+    const auto decision = sampler.on_push(step);
+    if (!decision.new_step) return;
+    const bool traced = decision.reason != TraceSampler::Reason::none;
+    if (!switch_kernels(traced)) { note_loss(LossReason::sampling_switch_error); return; }
+    if (!traced) return;
+    char text[128];
+    std::snprintf(text, sizeof text, "{\"type\":\"TracedStep\",\"step_id\":%llu,\"reason\":\"%s\"}",
+                  static_cast<unsigned long long>(step), reason_name(decision.reason));
+    reqscope_emit_json(text);
+}
+#endif
+void backend_step_record(uint64_t step, uint64_t t_begin, bool prefill) noexcept {
+    if (sampled_mode) sampler.on_step(step, t_begin, prefill);
+}
+uint64_t backend_sampling_triggers() noexcept { return sampled_mode ? sampler.triggers() : 0; }
 int backend_push(uint64_t step) noexcept {
     mark_engine_thread();
+#ifdef REQSCOPE_HAS_CUPTI
+    if (sampled_mode && active.load()) sample(step);
+#endif
     Timed timed(Site::push_step);
 #ifdef REQSCOPE_HAS_CUPTI
     if (active.load() && cuptiActivityPushExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM0, step) != CUPTI_SUCCESS) {

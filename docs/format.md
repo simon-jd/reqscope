@@ -21,7 +21,10 @@ never a default for GPU time. A plugin-only capture (`REQSCOPE_MODE=plugin`:
 the vLLM plugin's records, CUPTI never started) has no GPU records and no
 `clock_error_ns`. The collector also records the libcupti path
 and API version it loaded, how it subscribed, its state, its mode and its
-buffer configuration.
+buffer configuration. A sampled capture (`mode=sampled`) also has
+`trace_sampling` {every, trigger_percent, window, cupti_flush_ms}: which
+steps it traced kernel by kernel; the other steps have light mode's API,
+copy and synchronization records but no graph envelopes.
 
 ## Records
 
@@ -48,13 +51,14 @@ them.
 | Diagnostic | source, reason, stopped; a component that could not run or gave up (`stopped`: true), such as the clock probe (with the driver `error` and the `probes` completed) or the vLLM plugin after a collector failure |
 | AdapterConfig | vllm_version, runner, executor, async_scheduling, cudagraph_mode, tensor_parallel_size, pipeline_parallel_size; written once by the vLLM plugin |
 | Step | step_id, t_begin, t_end, tid, members[{req_id, tokens, phase}], preempted, finished |
+| TracedStep | step_id, reason = periodic / triggered; sampled mode only: this step's kernels were traced one by one. A step without one was not traced, or its record was lost |
 | Request | req_id, start, end, prompt_tokens; optional queued_until, token_times |
 | RequestTokens | req_id, first, token_times; optional token_steps (one chunk per 1,024 tokens) |
 | Sched | tid, start, end, state = on_cpu / runnable / sleeping |
 | SchedulerSample | runtime and run-queue deltas with resolution_ns; it does not replace Sched |
 | Loss | reason, count; optional seq_range, time_range, count_unit |
 | Session | state, with the backend error or exit signal if any |
-| CollectorStats | sites{name: calls, ns, max_ns, engine_calls}, timestamp_callbacks, cupti_records, cupti_bytes, writer_cpu_ns, writer_sleep_ns, writer_short_bursts, probe_cpu_ns, since_ns; the collector's own time per site, cumulative since `since_ns`, written every second and on flush. `engine_calls` counts calls on a thread that has pushed a step id |
+| CollectorStats | sites{name: calls, ns, max_ns, engine_calls}, timestamp_callbacks, cupti_records, cupti_bytes, writer_cpu_ns, writer_sleep_ns, writer_short_bursts, probe_cpu_ns, since_ns, and in sampled mode sampling_triggers; the collector's own time per site, cumulative since `since_ns`, written every second and on flush. `engine_calls` counts calls on a thread that has pushed a step id |
 | CollectorActivity | thread, start, end, cupti_records; an interval when the collector's writer thread was busy, from its first record after an idle sleep to the next sleep, written when it lasted at least 200 µs (shorter ones are counted in `writer_short_bursts`) |
 
 ## Losses
