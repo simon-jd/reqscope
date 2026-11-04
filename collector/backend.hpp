@@ -37,8 +37,9 @@ struct BackendInfo {
 BackendInfo backend_start(const std::string& mode, const SamplerConfig& sampling = {});
 // Sampled mode, writer thread: a Step record ended (TraceSampler::on_step).
 void backend_step_record(uint64_t step, uint64_t t_begin, bool prefill) noexcept;
-// Sampled mode: steps decided, steps traced, triggers raised so far.
-struct SamplingCounts { uint64_t steps = 0, traced = 0, triggers = 0; };
+// Sampled mode: steps decided, steps traced, triggers raised and guard steps
+// (kernel tracing on, not traced) so far.
+struct SamplingCounts { uint64_t steps = 0, traced = 0, triggers = 0, guards = 0; };
 SamplingCounts backend_sampling_counts() noexcept;
 void backend_flush() noexcept;
 // Sampled mode, writer thread: a forced CUPTI flush once no traced step can

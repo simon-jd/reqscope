@@ -212,7 +212,8 @@ public:
         header["max_automatic_snapshots"] = max_triggers;
         header["gpu_granularity"] = mode == "light" ? "graph-envelope; eager kernels not traced"
             : mode == "plugin" ? "none"
-            : mode == "sampled" ? "node on the steps named by TracedStep records; copies only on the others"
+            : mode == "sampled" ? "node on the steps named by TracedStep records; copies only on the others, "
+                                  "and invalid node records on the step after each run of traced steps"
             : "node";
         if (mode == "sampled")
             header["trace_sampling"] = Json::object({{"every", sampling.every},
@@ -427,7 +428,7 @@ public:
         if (mode == "sampled") {
             const auto counts = backend_sampling_counts();
             record["sampling"] = Json::object({{"steps", counts.steps}, {"traced", counts.traced},
-                                               {"triggers", counts.triggers}});
+                                               {"triggers", counts.triggers}, {"guards", counts.guards}});
         }
         emit(std::move(record), false);
         last_stats = monotonic_ns();

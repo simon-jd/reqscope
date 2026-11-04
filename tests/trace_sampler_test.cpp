@@ -122,6 +122,31 @@ void window_extends() {
     check(step(sampler, 56) == Reason::none, "extended window ends");
 }
 
+// Kernel tracing stays on for one step after each run of traced steps; that
+// guard step is not traced.
+void guard_steps() {
+    TraceSampler sampler(SamplerConfig{4, 0, 32});
+    for (uint64_t id = 1; id <= 12; ++id) {
+        const auto first = sampler.on_push(id);
+        const auto second = sampler.on_push(id);
+        const bool traced = (id - 1) % 4 == 0, guard = (id - 1) % 4 == 1;
+        check(first.kernels == (traced || guard), "kernels on for a traced step and the step after it");
+        check(second.kernels == first.kernels, "a step keeps its kernel tracing across its two pushes");
+        check((first.reason != Reason::none) == traced, "a guard step is not traced");
+    }
+    check(sampler.traced() == 3 && sampler.guards() == 3, "three traced and three guard steps");
+    // A window of consecutive traced steps gets one guard step after it.
+    TraceSampler window(SamplerConfig{0, 200, 3});
+    uint64_t t = 0, id = 1;
+    for (; id <= 40; ++id, t += 5'000'000) window.on_step(id, t, false);
+    t += 20'000'000;
+    window.on_step(id, t, false);
+    std::string kernels;
+    for (uint64_t s = 100; s < 106; ++s) kernels += window.on_push(s).kernels ? '1' : '0';
+    check(kernels == "111100", "a window of three, then one guard step");
+    check(window.traced() == 3 && window.guards() == 1, "one guard step after the window");
+}
+
 void both_rules() {
     TraceSampler sampler(SamplerConfig{10, 200, 3});
     uint64_t t = 0, id = 1;
@@ -148,6 +173,7 @@ int main() {
         prefill_and_gaps_do_not_trigger();
         no_trigger_before_history();
         window_extends();
+        guard_steps();
         both_rules();
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << "\n";

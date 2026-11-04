@@ -498,13 +498,15 @@ bool switch_kernels(bool on) noexcept {
 // The first push of each step id decides its granularity. A traced step is
 // named by a TracedStep record, written only once tracing is on: a step
 // without one was not traced (or its record was lost, and the analyzer
-// treats it as not traced).
+// treats it as not traced). Kernel tracing goes off one step after the last
+// traced one (TraceSampler, the guard step), so that the graphs the traced
+// step launched are launched again with tracing on before any launch
+// without it; that keeps the traced step's kernel end times its own.
 void sample(uint64_t step) noexcept {
     const auto decision = sampler.on_push(step);
     if (!decision.new_step) return;
-    const bool traced = decision.reason != TraceSampler::Reason::none;
-    if (!switch_kernels(traced)) { note_loss(LossReason::sampling_switch_error); return; }
-    if (!traced) return;
+    if (!switch_kernels(decision.kernels)) { note_loss(LossReason::sampling_switch_error); return; }
+    if (decision.reason == TraceSampler::Reason::none) return;
     char text[128];
     std::snprintf(text, sizeof text, "{\"type\":\"TracedStep\",\"step_id\":%llu,\"reason\":\"%s\"}",
                   static_cast<unsigned long long>(step), reason_name(decision.reason));
@@ -516,7 +518,7 @@ void backend_step_record(uint64_t step, uint64_t t_begin, bool prefill) noexcept
 }
 SamplingCounts backend_sampling_counts() noexcept {
     if (!sampled_mode) return {};
-    return {sampler.steps(), sampler.traced(), sampler.triggers()};
+    return {sampler.steps(), sampler.traced(), sampler.triggers(), sampler.guards()};
 }
 int backend_push(uint64_t step) noexcept {
     mark_engine_thread();
