@@ -1,0 +1,676 @@
+{
+  "runs": [
+    {
+      "run": "multicause-guard-s4-s1",
+      "mode": "sampled",
+      "steps": 6018,
+      "graph_launch_us_median": {
+        "guard": 239.2,
+        "traced": 246.8,
+        "untraced": 89.9
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 28894,
+        "memset": 850,
+        "kernel": 1247047
+      },
+      "untimed_gpu_records_by_kind": {
+        "memset": 1,
+        "memcpy": 846
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 5982,
+          "at_least_1.3x": 96,
+          "at_least_1.5x": 94,
+          "at_least_2.0x": 37,
+          "at_least_3.0x": 3
+        },
+        "prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 1,
+          "at_least_1.5x": 1,
+          "at_least_2.0x": 0,
+          "at_least_3.0x": 0
+        },
+        "after_prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 3,
+          "at_least_1.5x": 3,
+          "at_least_2.0x": 3,
+          "at_least_3.0x": 3
+        },
+        "prefill_after_prefill": {
+          "intervals": 6,
+          "at_least_1.3x": 6,
+          "at_least_1.5x": 6,
+          "at_least_2.0x": 6,
+          "at_least_3.0x": 6
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 4,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 1505,
+      "traced_by_reason": {
+        "periodic": 1505
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 1500,
+          "kernels_median": 412.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 1498
+        },
+        "guard": {
+          "decode_steps": 1503,
+          "kernels_median": 412,
+          "graphs_median": 0,
+          "steps_with_kernels": 1501
+        },
+        "untraced": {
+          "decode_steps": 3002,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 1498,
+          "median": 5.95,
+          "p90": 7.13,
+          "max": 12.8
+        },
+        "guard": {
+          "decode_steps": 1501,
+          "median": 15.18,
+          "p90": 20.16,
+          "max": 204.0
+        }
+      },
+      "sampling": {
+        "guards": 1490,
+        "steps": 5960,
+        "traced": 1490,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 2980,
+        "mean_us": 4.0,
+        "max_us": 68.8
+      },
+      "sampled_flush": {
+        "calls": 195,
+        "mean_us": 221.6,
+        "max_us": 1024.4
+      }
+    },
+    {
+      "run": "multicause-guard-s16-s1",
+      "mode": "sampled",
+      "steps": 6018,
+      "graph_launch_us_median": {
+        "guard": 226.5,
+        "traced": 240.7,
+        "untraced": 82.4
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 26554,
+        "memset": 906,
+        "kernel": 310250
+      },
+      "untimed_gpu_records_by_kind": {
+        "memcpy": 878,
+        "memset": 51
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 5982,
+          "at_least_1.3x": 99,
+          "at_least_1.5x": 93,
+          "at_least_2.0x": 39,
+          "at_least_3.0x": 3
+        },
+        "prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 1,
+          "at_least_1.5x": 0,
+          "at_least_2.0x": 0,
+          "at_least_3.0x": 0
+        },
+        "after_prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 3,
+          "at_least_1.5x": 3,
+          "at_least_2.0x": 3,
+          "at_least_3.0x": 3
+        },
+        "prefill_after_prefill": {
+          "intervals": 6,
+          "at_least_1.3x": 6,
+          "at_least_1.5x": 6,
+          "at_least_2.0x": 6,
+          "at_least_3.0x": 6
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 16,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 377,
+      "traced_by_reason": {
+        "periodic": 377
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 373,
+          "kernels_median": 413,
+          "graphs_median": 0,
+          "steps_with_kernels": 372
+        },
+        "guard": {
+          "decode_steps": 376,
+          "kernels_median": 413.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 375
+        },
+        "untraced": {
+          "decode_steps": 5256,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 372,
+          "median": 5.95,
+          "p90": 7.12,
+          "max": 12.0
+        },
+        "guard": {
+          "decode_steps": 375,
+          "median": 59.59,
+          "p90": 85.54,
+          "max": 145.9
+        }
+      },
+      "sampling": {
+        "guards": 373,
+        "steps": 5968,
+        "traced": 373,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 746,
+        "mean_us": 4.5,
+        "max_us": 10.2
+      },
+      "sampled_flush": {
+        "calls": 215,
+        "mean_us": 293.9,
+        "max_us": 21064.4
+      }
+    },
+    {
+      "run": "multicause-guard-trig-s1",
+      "mode": "sampled",
+      "steps": 6018,
+      "graph_launch_us_median": {
+        "guard": 208.9,
+        "traced": 219.2,
+        "untraced": 84.3
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 26465,
+        "memset": 850,
+        "kernel": 131879
+      },
+      "untimed_gpu_records_by_kind": {
+        "memcpy": 914,
+        "memset": 124
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 5982,
+          "at_least_1.3x": 103,
+          "at_least_1.5x": 95,
+          "at_least_2.0x": 38,
+          "at_least_3.0x": 3
+        },
+        "prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 0,
+          "at_least_1.5x": 0,
+          "at_least_2.0x": 0,
+          "at_least_3.0x": 0
+        },
+        "after_prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 3,
+          "at_least_1.5x": 3,
+          "at_least_2.0x": 3,
+          "at_least_3.0x": 3
+        },
+        "prefill_after_prefill": {
+          "intervals": 6,
+          "at_least_1.3x": 6,
+          "at_least_1.5x": 6,
+          "at_least_2.0x": 6,
+          "at_least_3.0x": 6
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 0,
+        "trigger_percent": 150,
+        "window": 32
+      },
+      "traced_steps": 313,
+      "traced_by_reason": {
+        "triggered": 313
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 313,
+          "kernels_median": 412,
+          "graphs_median": 0,
+          "steps_with_kernels": 313
+        },
+        "guard": {
+          "decode_steps": 7,
+          "kernels_median": 412,
+          "graphs_median": 0,
+          "steps_with_kernels": 7
+        },
+        "untraced": {
+          "decode_steps": 5685,
+          "kernels_median": 0,
+          "graphs_median": 0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_traced": {
+          "decode_steps": 306,
+          "median": 5.8,
+          "p90": 10.19,
+          "max": 12.9
+        },
+        "next_untraced": {
+          "decode_steps": 7,
+          "median": 5.12,
+          "p90": 5.86,
+          "max": 6.1
+        },
+        "guard": {
+          "decode_steps": 7,
+          "median": 7.53,
+          "p90": 8.04,
+          "max": 24.3
+        }
+      },
+      "sampling": {
+        "guards": 7,
+        "steps": 5973,
+        "traced": 313,
+        "triggers": 95
+      },
+      "switch_granularity": {
+        "calls": 14,
+        "mean_us": 4.9,
+        "max_us": 12.2
+      },
+      "sampled_flush": {
+        "calls": 212,
+        "mean_us": 140.7,
+        "max_us": 2373.6
+      }
+    },
+    {
+      "run": "openloop-guard-s16-r1",
+      "mode": "sampled",
+      "steps": 15403,
+      "graph_launch_us_median": {
+        "guard": 212.8,
+        "traced": 222.1,
+        "untraced": 81.0
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 74462,
+        "memset": 64858,
+        "kernel": 754661
+      },
+      "untimed_gpu_records_by_kind": {
+        "memcpy": 2185,
+        "memset": 2259
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13693,
+          "at_least_1.3x": 72,
+          "at_least_1.5x": 56,
+          "at_least_2.0x": 11,
+          "at_least_3.0x": 6
+        },
+        "prefill": {
+          "intervals": 810,
+          "at_least_1.3x": 403,
+          "at_least_1.5x": 82,
+          "at_least_2.0x": 53,
+          "at_least_3.0x": 39
+        },
+        "after_prefill": {
+          "intervals": 810,
+          "at_least_1.3x": 770,
+          "at_least_1.5x": 766,
+          "at_least_2.0x": 746,
+          "at_least_3.0x": 33
+        },
+        "prefill_after_prefill": {
+          "intervals": 65,
+          "at_least_1.3x": 65,
+          "at_least_1.5x": 64,
+          "at_least_2.0x": 59,
+          "at_least_3.0x": 2
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 16,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 963,
+      "traced_by_reason": {
+        "periodic": 963
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 906,
+          "kernels_median": 385.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 906
+        },
+        "guard": {
+          "decode_steps": 912,
+          "kernels_median": 386.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 910
+        },
+        "untraced": {
+          "decode_steps": 12706,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 906,
+          "median": 4.91,
+          "p90": 4.96,
+          "max": 6444.0
+        },
+        "guard": {
+          "decode_steps": 910,
+          "median": 40.0,
+          "p90": 70.13,
+          "max": 131.7
+        }
+      },
+      "sampling": {
+        "guards": 963,
+        "steps": 15403,
+        "traced": 963,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 1926,
+        "mean_us": 4.3,
+        "max_us": 31.0
+      },
+      "sampled_flush": {
+        "calls": 450,
+        "mean_us": 214.9,
+        "max_us": 1767.5
+      }
+    },
+    {
+      "run": "openloop-guard-s4-r1",
+      "mode": "sampled",
+      "steps": 15310,
+      "graph_launch_us_median": {
+        "guard": 245.3,
+        "traced": 254.4,
+        "untraced": 94.4
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 82980,
+        "memset": 65642,
+        "kernel": 3008792
+      },
+      "untimed_gpu_records_by_kind": {
+        "memcpy": 1977,
+        "memset": 1240
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13613,
+          "at_least_1.3x": 96,
+          "at_least_1.5x": 66,
+          "at_least_2.0x": 25,
+          "at_least_3.0x": 9
+        },
+        "prefill": {
+          "intervals": 799,
+          "at_least_1.3x": 588,
+          "at_least_1.5x": 252,
+          "at_least_2.0x": 101,
+          "at_least_3.0x": 65
+        },
+        "after_prefill": {
+          "intervals": 799,
+          "at_least_1.3x": 727,
+          "at_least_1.5x": 711,
+          "at_least_2.0x": 668,
+          "at_least_3.0x": 32
+        },
+        "prefill_after_prefill": {
+          "intervals": 74,
+          "at_least_1.3x": 74,
+          "at_least_1.5x": 70,
+          "at_least_2.0x": 59,
+          "at_least_3.0x": 11
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 4,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 3828,
+      "traced_by_reason": {
+        "periodic": 3828
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 3605,
+          "kernels_median": 385,
+          "graphs_median": 0,
+          "steps_with_kernels": 3600
+        },
+        "guard": {
+          "decode_steps": 3607,
+          "kernels_median": 386,
+          "graphs_median": 0,
+          "steps_with_kernels": 3604
+        },
+        "untraced": {
+          "decode_steps": 7221,
+          "kernels_median": 0,
+          "graphs_median": 0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 3600,
+          "median": 4.92,
+          "p90": 4.97,
+          "max": 7332.3
+        },
+        "guard": {
+          "decode_steps": 3604,
+          "median": 12.83,
+          "p90": 14.22,
+          "max": 59.0
+        }
+      },
+      "sampling": {
+        "guards": 3828,
+        "steps": 15310,
+        "traced": 3828,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 7655,
+        "mean_us": 4.3,
+        "max_us": 42.1
+      },
+      "sampled_flush": {
+        "calls": 423,
+        "mean_us": 278.8,
+        "max_us": 5230.6
+      }
+    },
+    {
+      "run": "openloop-guard-trig-r1",
+      "mode": "sampled",
+      "steps": 15393,
+      "graph_launch_us_median": {
+        "guard": 212.8,
+        "traced": 233.1,
+        "untraced": 80.6
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 74688,
+        "memset": 64690,
+        "kernel": 448258
+      },
+      "untimed_gpu_records_by_kind": {
+        "memcpy": 2057,
+        "memset": 1840
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13685,
+          "at_least_1.3x": 96,
+          "at_least_1.5x": 69,
+          "at_least_2.0x": 15,
+          "at_least_3.0x": 8
+        },
+        "prefill": {
+          "intervals": 808,
+          "at_least_1.3x": 458,
+          "at_least_1.5x": 74,
+          "at_least_2.0x": 41,
+          "at_least_3.0x": 29
+        },
+        "after_prefill": {
+          "intervals": 808,
+          "at_least_1.3x": 772,
+          "at_least_1.5x": 766,
+          "at_least_2.0x": 744,
+          "at_least_3.0x": 34
+        },
+        "prefill_after_prefill": {
+          "intervals": 67,
+          "at_least_1.3x": 66,
+          "at_least_1.5x": 66,
+          "at_least_2.0x": 64,
+          "at_least_3.0x": 3
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 0,
+        "trigger_percent": 150,
+        "window": 32
+      },
+      "traced_steps": 1121,
+      "traced_by_reason": {
+        "triggered": 1121
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 1052,
+          "kernels_median": 385.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 1050
+        },
+        "guard": {
+          "decode_steps": 32,
+          "kernels_median": 385.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 32
+        },
+        "untraced": {
+          "decode_steps": 13430,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_traced": {
+          "decode_steps": 1018,
+          "median": 4.92,
+          "p90": 4.97,
+          "max": 10.7
+        },
+        "next_untraced": {
+          "decode_steps": 32,
+          "median": 4.92,
+          "p90": 4.97,
+          "max": 19.5
+        },
+        "guard": {
+          "decode_steps": 32,
+          "median": 6.47,
+          "p90": 14.32,
+          "max": 26.5
+        }
+      },
+      "sampling": {
+        "guards": 33,
+        "steps": 15393,
+        "traced": 1121,
+        "triggers": 69
+      },
+      "switch_granularity": {
+        "calls": 66,
+        "mean_us": 9.5,
+        "max_us": 29.5
+      },
+      "sampled_flush": {
+        "calls": 429,
+        "mean_us": 201.5,
+        "max_us": 1706.3
+      }
+    }
+  ]
+}

@@ -28,6 +28,9 @@ here are derived from them.
 | `multicause-sampled.json` | `multicause-sampled-{trace,s4,s16,trig,plugin}-s1` to `-s3` | `bench/score_causes.py`, which ran `reqscope blame` on each capture (the trace reader's budget at 8 GiB) |
 | `openloop-sampled.json` | `openloop-sampled-{off,light,s16,s4,trig,trace}-r1` to `-r5` | `bench/score.py openloop` |
 | `sampled-captures.json` | `multicause-sampled-{s4,s16,trig}-s1` and `openloop-sampled-{light,s16,s4,trig}-r1` | `bench/sampled_captures.py` |
+| `multicause-sampled-guard.json` | `multicause-guard-{s4,s16,trig}-s1` to `-s3` | `bench/score_causes.py`, as for `multicause-sampled.json` |
+| `openloop-sampled-guard.json` | `openloop-guard-{off,s16,s4,trig}-r1` to `-r5` | `bench/score.py openloop` |
+| `sampled-captures-guard.json` | `multicause-guard-{s4,s16,trig}-s1` and `openloop-guard-{s16,s4,trig}-r1` | `bench/sampled_captures.py` of commit a21d637 (guard steps in their own group) |
 
 Notes:
 
@@ -101,3 +104,18 @@ Notes:
   five arms, and the five open-loop rounds (40 s at 8 and then 16
   requests/s per run) the order of their six. Host load (1-minute average): 2.05–3.32
   during the multi-cause runs, 1.85–6.57 during the open-loop rate windows.
+  Their sampled captures have the late kernel end times that commit 6fd8ae3
+  fixed (the README's "Sampled trace mode"); the three files keep them as
+  measured.
+- The guard-step runs (`multicause-guard-*`, `openloop-guard-*`) ran in a
+  second session, after the collector change of commit 6fd8ae3 (built from
+  1600976, which also has the analyzer change), with the same settings,
+  model, lock and `nvidia-smi` sampling as the first; `bench.stdout` in
+  each run directory is the benchmark's own output. Only the sampled arms
+  were rerun, with no collector (`off`) as the open-loop reference; trace
+  mode, light and the plugin alone were not. The multi-cause seeds rotated
+  the order of their three arms, the open-loop rounds that of their four.
+  Host load: 3.70–7.44 during the multi-cause runs and 2.38–13.14 during
+  the open-loop rate windows (round 5 at 6.2–13.1), higher than in the
+  first session. While the GPU was busy, SM clocks were 2520–2805 MHz and
+  21 of 395 samples showed the software power cap.
