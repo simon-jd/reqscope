@@ -834,16 +834,39 @@ Results from the runs above are in `results/`;
 [results/README.md](results/README.md) lists which run and script produced
 each file.
 
-The tests run on CPU. They cover:
+## Tests
+
+`ctest` runs the C++ tests and the Python tests on CPU. They cover:
 - the format reader;
 - the collector's C ABI, against a manual backend, including a writer
   failure under a file-size limit;
 - the clock probe, against a fake CUDA driver;
+- the sampled-mode step picker (which steps to trace, guard steps
+  included), without CUPTI;
 - the analyzer: linking, clock probes, blame and decomposition;
 - the vLLM plugin's contracts, against stubbed runner and scheduler
   classes;
-- CUDA DAG fixtures (streams, copies, graph replay and mutation) checked
-  against CUPTI recordings.
+- CUDA DAG fixtures (streams, copies, graph replay and mutation): the
+  analyzer is checked against CUPTI recordings of them committed in
+  `fixtures/recordings/`.
+
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) builds with
+`-DREQSCOPE_WITH_CUPTI=OFF` on a runner without a GPU. That compiles
+`collector/cupti_backend.cpp` without its CUPTI code, so CI never runs the
+CUPTI backend, and it tests the vLLM plugin only against stubs. These are
+verified only on the GPU host (the RTX 4090 above), or through recordings
+made there:
+- the CUPTI backend: subscribing, activity buffers, tagging kernels and
+  copies with their step, the clock probe's copies on the real driver, and
+  turning kernel tracing on and off in sampled mode;
+- `tests/test_sampled_replay.py`, the late-end-time test on a real CUDA
+  graph, which needs a GPU and a build of the CUDA fixtures and is skipped
+  otherwise;
+- the CUDA DAG fixtures themselves (`fixtures/dag/`), which CI sees only as
+  recordings;
+- the plugin inside a live vLLM 0.31.0 server, which only the benchmark
+  runs load;
+- every number in `results/`.
 
 ## Limitations
 
