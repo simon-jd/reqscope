@@ -1,0 +1,637 @@
+{
+  "runs": [
+    {
+      "run": "multicause-sampled-s4-s1",
+      "mode": "sampled",
+      "steps": 6018,
+      "graph_launch_us_median": {
+        "traced": 229.9,
+        "untraced": 78.7
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 27365,
+        "memset": 906,
+        "kernel": 627539
+      },
+      "untimed_gpu_records_by_kind": {
+        "memset": 1,
+        "memcpy": 924
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 5982,
+          "at_least_1.3x": 98,
+          "at_least_1.5x": 95,
+          "at_least_2.0x": 40,
+          "at_least_3.0x": 3
+        },
+        "prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 0,
+          "at_least_1.5x": 0,
+          "at_least_2.0x": 0,
+          "at_least_3.0x": 0
+        },
+        "after_prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 3,
+          "at_least_1.5x": 3,
+          "at_least_2.0x": 3,
+          "at_least_3.0x": 3
+        },
+        "prefill_after_prefill": {
+          "intervals": 6,
+          "at_least_1.3x": 6,
+          "at_least_1.5x": 6,
+          "at_least_2.0x": 6,
+          "at_least_3.0x": 6
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 4,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 1505,
+      "traced_by_reason": {
+        "periodic": 1505
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 1500,
+          "kernels_median": 412.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 1498
+        },
+        "untraced": {
+          "decode_steps": 4505,
+          "kernels_median": 0,
+          "graphs_median": 0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 1498,
+          "median": 19.96,
+          "p90": 27.04,
+          "max": 213.9
+        }
+      },
+      "sampling": {
+        "steps": 5996,
+        "traced": 1499,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 2998,
+        "mean_us": 3.3,
+        "max_us": 28.1
+      },
+      "sampled_flush": {
+        "calls": 196,
+        "mean_us": 156.1,
+        "max_us": 1763.8
+      }
+    },
+    {
+      "run": "multicause-sampled-s16-s1",
+      "mode": "sampled",
+      "steps": 6018,
+      "graph_launch_us_median": {
+        "traced": 227.9,
+        "untraced": 80.3
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 26184,
+        "memset": 906,
+        "kernel": 155103
+      },
+      "untimed_gpu_records_by_kind": {
+        "memset": 83,
+        "memcpy": 883
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 5982,
+          "at_least_1.3x": 99,
+          "at_least_1.5x": 94,
+          "at_least_2.0x": 40,
+          "at_least_3.0x": 3
+        },
+        "prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 0,
+          "at_least_1.5x": 0,
+          "at_least_2.0x": 0,
+          "at_least_3.0x": 0
+        },
+        "after_prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 3,
+          "at_least_1.5x": 3,
+          "at_least_2.0x": 3,
+          "at_least_3.0x": 3
+        },
+        "prefill_after_prefill": {
+          "intervals": 6,
+          "at_least_1.3x": 6,
+          "at_least_1.5x": 6,
+          "at_least_2.0x": 6,
+          "at_least_3.0x": 6
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 16,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 377,
+      "traced_by_reason": {
+        "periodic": 377
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 374,
+          "kernels_median": 413.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 373
+        },
+        "untraced": {
+          "decode_steps": 5631,
+          "kernels_median": 0,
+          "graphs_median": 0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 373,
+          "median": 67.71,
+          "p90": 103.31,
+          "max": 157.6
+        }
+      },
+      "sampling": {
+        "steps": 5966,
+        "traced": 373,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 746,
+        "mean_us": 4.2,
+        "max_us": 10.5
+      },
+      "sampled_flush": {
+        "calls": 215,
+        "mean_us": 147.0,
+        "max_us": 1986.4
+      }
+    },
+    {
+      "run": "multicause-sampled-trig-s1",
+      "mode": "sampled",
+      "steps": 6018,
+      "graph_launch_us_median": {
+        "traced": 239.1,
+        "untraced": 183.5
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 26757,
+        "memset": 906,
+        "kernel": 128171
+      },
+      "untimed_gpu_records_by_kind": {
+        "memcpy": 836,
+        "memset": 120
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 5982,
+          "at_least_1.3x": 106,
+          "at_least_1.5x": 94,
+          "at_least_2.0x": 38,
+          "at_least_3.0x": 3
+        },
+        "prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 1,
+          "at_least_1.5x": 1,
+          "at_least_2.0x": 1,
+          "at_least_3.0x": 0
+        },
+        "after_prefill": {
+          "intervals": 3,
+          "at_least_1.3x": 3,
+          "at_least_1.5x": 3,
+          "at_least_2.0x": 3,
+          "at_least_3.0x": 3
+        },
+        "prefill_after_prefill": {
+          "intervals": 6,
+          "at_least_1.3x": 6,
+          "at_least_1.5x": 6,
+          "at_least_2.0x": 6,
+          "at_least_3.0x": 6
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 0,
+        "trigger_percent": 150,
+        "window": 32
+      },
+      "traced_steps": 311,
+      "traced_by_reason": {
+        "triggered": 311
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 311,
+          "kernels_median": 412,
+          "graphs_median": 0,
+          "steps_with_kernels": 311
+        },
+        "untraced": {
+          "decode_steps": 5694,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_traced": {
+          "decode_steps": 304,
+          "median": 5.87,
+          "p90": 10.2,
+          "max": 12.9
+        },
+        "next_untraced": {
+          "decode_steps": 7,
+          "median": 13.25,
+          "p90": 13.76,
+          "max": 30.6
+        }
+      },
+      "sampling": {
+        "steps": 5961,
+        "traced": 311,
+        "triggers": 94
+      },
+      "switch_granularity": {
+        "calls": 14,
+        "mean_us": 5.2,
+        "max_us": 8.5
+      },
+      "sampled_flush": {
+        "calls": 213,
+        "mean_us": 288.8,
+        "max_us": 22170.5
+      }
+    },
+    {
+      "run": "openloop-sampled-light-r1",
+      "mode": "light",
+      "steps": 15493,
+      "graph_launch_us_median": {
+        "untraced": 48.9
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 71715,
+        "memset": 50830,
+        "graph": 14621
+      },
+      "untimed_gpu_records_by_kind": {},
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13790,
+          "at_least_1.3x": 7,
+          "at_least_1.5x": 4,
+          "at_least_2.0x": 4,
+          "at_least_3.0x": 4
+        },
+        "prefill": {
+          "intervals": 799,
+          "at_least_1.3x": 408,
+          "at_least_1.5x": 328,
+          "at_least_2.0x": 71,
+          "at_least_3.0x": 15
+        },
+        "after_prefill": {
+          "intervals": 799,
+          "at_least_1.3x": 769,
+          "at_least_1.5x": 752,
+          "at_least_2.0x": 620,
+          "at_least_3.0x": 30
+        },
+        "prefill_after_prefill": {
+          "intervals": 80,
+          "at_least_1.3x": 79,
+          "at_least_1.5x": 75,
+          "at_least_2.0x": 51,
+          "at_least_3.0x": 3
+        }
+      }
+    },
+    {
+      "run": "openloop-sampled-s16-r1",
+      "mode": "sampled",
+      "steps": 15488,
+      "graph_launch_us_median": {
+        "traced": 217.5,
+        "untraced": 74.1
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 73289,
+        "memset": 64326,
+        "kernel": 380215
+      },
+      "untimed_gpu_records_by_kind": {
+        "memset": 2696,
+        "memcpy": 2293
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13769,
+          "at_least_1.3x": 5,
+          "at_least_1.5x": 5,
+          "at_least_2.0x": 4,
+          "at_least_3.0x": 4
+        },
+        "prefill": {
+          "intervals": 820,
+          "at_least_1.3x": 182,
+          "at_least_1.5x": 33,
+          "at_least_2.0x": 14,
+          "at_least_3.0x": 8
+        },
+        "after_prefill": {
+          "intervals": 820,
+          "at_least_1.3x": 809,
+          "at_least_1.5x": 804,
+          "at_least_2.0x": 795,
+          "at_least_3.0x": 36
+        },
+        "prefill_after_prefill": {
+          "intervals": 54,
+          "at_least_1.3x": 53,
+          "at_least_1.5x": 53,
+          "at_least_2.0x": 50,
+          "at_least_3.0x": 4
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 16,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 968,
+      "traced_by_reason": {
+        "periodic": 968
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 924,
+          "kernels_median": 385.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 923
+        },
+        "untraced": {
+          "decode_steps": 13686,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 923,
+          "median": 54.41,
+          "p90": 81.77,
+          "max": 112.3
+        }
+      },
+      "sampling": {
+        "steps": 15488,
+        "traced": 968,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 1936,
+        "mean_us": 3.9,
+        "max_us": 9.6
+      },
+      "sampled_flush": {
+        "calls": 446,
+        "mean_us": 167.6,
+        "max_us": 398.7
+      }
+    },
+    {
+      "run": "openloop-sampled-s4-r1",
+      "mode": "sampled",
+      "steps": 15470,
+      "graph_launch_us_median": {
+        "traced": 229.0,
+        "untraced": 79.4
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 77805,
+        "memset": 64690,
+        "kernel": 1522310
+      },
+      "untimed_gpu_records_by_kind": {
+        "memset": 1535,
+        "memcpy": 2079
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13755,
+          "at_least_1.3x": 8,
+          "at_least_1.5x": 5,
+          "at_least_2.0x": 4,
+          "at_least_3.0x": 4
+        },
+        "prefill": {
+          "intervals": 812,
+          "at_least_1.3x": 323,
+          "at_least_1.5x": 114,
+          "at_least_2.0x": 30,
+          "at_least_3.0x": 10
+        },
+        "after_prefill": {
+          "intervals": 812,
+          "at_least_1.3x": 794,
+          "at_least_1.5x": 786,
+          "at_least_2.0x": 748,
+          "at_least_3.0x": 34
+        },
+        "prefill_after_prefill": {
+          "intervals": 66,
+          "at_least_1.3x": 65,
+          "at_least_1.5x": 60,
+          "at_least_2.0x": 54,
+          "at_least_3.0x": 2
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 4,
+        "trigger_percent": 0,
+        "window": 32
+      },
+      "traced_steps": 3868,
+      "traced_by_reason": {
+        "periodic": 3868
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 3646,
+          "kernels_median": 385.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 3640
+        },
+        "untraced": {
+          "decode_steps": 10942,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_untraced": {
+          "decode_steps": 3640,
+          "median": 17.38,
+          "p90": 19.24,
+          "max": 84.9
+        }
+      },
+      "sampling": {
+        "steps": 15470,
+        "traced": 3868,
+        "triggers": 0
+      },
+      "switch_granularity": {
+        "calls": 7736,
+        "mean_us": 3.7,
+        "max_us": 1197.8
+      },
+      "sampled_flush": {
+        "calls": 410,
+        "mean_us": 525.2,
+        "max_us": 20758.3
+      }
+    },
+    {
+      "run": "openloop-sampled-trig-r1",
+      "mode": "sampled",
+      "steps": 15475,
+      "graph_launch_us_median": {
+        "traced": 216.1,
+        "untraced": 86.2
+      },
+      "gpu_records_by_kind": {
+        "memcpy": 79875,
+        "memset": 64466,
+        "kernel": 111313
+      },
+      "untimed_gpu_records_by_kind": {
+        "memset": 2008,
+        "memcpy": 1863
+      },
+      "losses": {},
+      "intervals": {
+        "decode_after_decode": {
+          "intervals": 13764,
+          "at_least_1.3x": 21,
+          "at_least_1.5x": 9,
+          "at_least_2.0x": 4,
+          "at_least_3.0x": 4
+        },
+        "prefill": {
+          "intervals": 811,
+          "at_least_1.3x": 222,
+          "at_least_1.5x": 111,
+          "at_least_2.0x": 21,
+          "at_least_3.0x": 7
+        },
+        "after_prefill": {
+          "intervals": 811,
+          "at_least_1.3x": 796,
+          "at_least_1.5x": 792,
+          "at_least_2.0x": 751,
+          "at_least_3.0x": 35
+        },
+        "prefill_after_prefill": {
+          "intervals": 64,
+          "at_least_1.3x": 62,
+          "at_least_1.5x": 61,
+          "at_least_2.0x": 55,
+          "at_least_3.0x": 3
+        }
+      },
+      "trace_sampling": {
+        "cupti_flush_ms": 200,
+        "every": 0,
+        "trigger_percent": 150,
+        "window": 32
+      },
+      "traced_steps": 288,
+      "traced_by_reason": {
+        "triggered": 288
+      },
+      "linked_per_decode_step": {
+        "traced": {
+          "decode_steps": 266,
+          "kernels_median": 386.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 266
+        },
+        "untraced": {
+          "decode_steps": 14330,
+          "kernels_median": 0.0,
+          "graphs_median": 0.0,
+          "steps_with_kernels": 0
+        }
+      },
+      "kernel_span_ms": {
+        "next_traced": {
+          "decode_steps": 257,
+          "median": 4.67,
+          "p90": 4.94,
+          "max": 5.1
+        },
+        "next_untraced": {
+          "decode_steps": 9,
+          "median": 14.18,
+          "p90": 25.99,
+          "max": 33.9
+        }
+      },
+      "sampling": {
+        "steps": 15475,
+        "traced": 288,
+        "triggers": 9
+      },
+      "switch_granularity": {
+        "calls": 18,
+        "mean_us": 4.8,
+        "max_us": 8.5
+      },
+      "sampled_flush": {
+        "calls": 455,
+        "mean_us": 1159.5,
+        "max_us": 4282.3
+      }
+    }
+  ]
+}

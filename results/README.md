@@ -25,6 +25,9 @@ here are derived from them.
 | `launch-cost.json` | `results/raw/launch-cost/*.json` | `bench/launch_cost.py`, one file per run, gathered with a `config` and `collector` label per run |
 | `analysis-speed.json` | `interference-s5` | `bench/analysis_speed.py`: three runs of `reqscope blame` on its capture, wall time and peak memory |
 | `captures.json` | `interference-s5`, round 1 of `overhead-light` and `overhead-trace`, and `interference-s1` to `-s4` | `bench/capture_stats.py` |
+| `multicause-sampled.json` | `multicause-sampled-{trace,s4,s16,trig,plugin}-s1` to `-s3` | `bench/score_causes.py`, which ran `reqscope blame` on each capture (the trace reader's budget at 8 GiB) |
+| `openloop-sampled.json` | `openloop-sampled-{off,light,s16,s4,trig,trace}-r1` to `-r5` | `bench/score.py openloop` |
+| `sampled-captures.json` | `multicause-sampled-{s4,s16,trig}-s1` and `openloop-sampled-{light,s16,s4,trig}-r1` | `bench/sampled_captures.py` |
 
 Notes:
 
@@ -86,3 +89,15 @@ Notes:
   experiment switches set; the `collector` label says which build ran.
 - Overhead rounds 2 and 3 kept only client timings, so the write rates in
   `captures.json` come from round 1.
+- The sampled-mode runs (`multicause-sampled-*`, `openloop-sampled-*`) ran
+  in one session with the collector, analyzer and bench scripts of commit
+  a14b088 and `--gpu-memory-utilization 0.6`. Each run held the GPU lock
+  and sampled `nvidia-smi` every 5 s inside it (`nvidia-smi.csv` in the run
+  directory). In the run names, `s4` is `--mode sampled` with
+  `REQSCOPE_TRACE_EVERY=4`, `s16` the same with 16, and `trig` is
+  `REQSCOPE_TRACE_TRIGGER_PERCENT=150` with `REQSCOPE_TRACE_WINDOW=32` and
+  no periodic steps; the other arms are the modes of the same name, and
+  `off` is no collector. The multi-cause seeds rotated the order of their
+  five arms, and the five open-loop rounds (40 s at 8 and then 16
+  requests/s per run) the order of their six. Host load (1-minute average): 2.05–3.32
+  during the multi-cause runs, 1.85–6.57 during the open-loop rate windows.
