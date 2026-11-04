@@ -13,7 +13,10 @@ Per run directory (capture/ and client.json from bench/interference.py):
 - per traced decode-only step, the time from its first kernel's start to
   its last kernel's end, split by whether the next step was traced too
   (kernel_span_ms): median, 90th percentile and longest; the same for
-  guard steps, whose end times are not their own;
+  guard steps, whose end times are not their own. For traced steps before
+  an untraced one, also how many spanned over 10 ms, and how many of those
+  were followed by a step that launched none of their graphs or had
+  prefill;
 - the median host time of graph launch calls (cuGraphLaunch and
   cudaGraphLaunch API records) on traced, guard and other untraced steps;
 - Loss counts by reason;
@@ -77,7 +80,7 @@ def summarize(run: Path) -> dict:
     steps: dict[int, tuple[int, bool]] = {}
     traced: dict[int, str] = {}
     corr_step: dict[int, int] = {}
-    activities: list[tuple[int, str, int, int]] = []
+    activities: list[tuple[int, str, int, int, int]] = []
     launches: list[tuple[int, int]] = []
     kinds, untimed, losses = Counter(), Counter(), Counter()
     for segment in sorted((run / "capture").glob("segment-*.rqs")):
@@ -98,7 +101,8 @@ def summarize(run: Path) -> dict:
                 kinds[record["kind"]] += 1
                 if not record.get("start") or not record.get("end"):
                     untimed[record["kind"]] += 1
-                activities.append((record["corr"], record["kind"], record.get("start") or 0, record.get("end") or 0))
+                activities.append((record["corr"], record["kind"], record.get("start") or 0, record.get("end") or 0,
+                                   record.get("graph_id") or 0))
             elif kind == "ApiCall":
                 name = str(record.get("name") or record.get("cbid", ""))
                 if "GraphLaunch" in name and record.get("end", 0) >= record.get("start", 0):
@@ -109,10 +113,13 @@ def summarize(run: Path) -> dict:
                 stats = record
     per_step: dict[int, Counter] = defaultdict(Counter)
     spans: dict[int, tuple[int, int]] = {}
-    for corr, kind, start, end in activities:
+    graphs: dict[int, set[int]] = defaultdict(set)
+    for corr, kind, start, end, graph in activities:
         if corr in corr_step:
             step = corr_step[corr]
             per_step[step][kind] += 1
+            if graph:
+                graphs[step].add(graph)
             if kind == "kernel" and start and end:
                 low, high = spans.get(step, (start, end))
                 spans[step] = (min(low, start), max(high, end))
@@ -134,6 +141,12 @@ def summarize(run: Path) -> dict:
         if values:
             kernel_span[name] = {"decode_steps": len(values), "median": round(statistics.median(values), 2),
                                  "p90": round(values[int(0.9 * (len(values) - 1))], 2), "max": round(values[-1], 1)}
+    if "next_untraced" in kernel_span:
+        long = [s for s in traced if s in spans and s in steps and not steps[s][1] and s + 1 not in traced
+                and spans[s][1] - spans[s][0] > 10_000_000]
+        kernel_span["next_untraced"].update(
+            over_10ms=len(long), over_10ms_next_shares_no_graph=sum(not graphs[s] & graphs[s + 1] for s in long),
+            over_10ms_next_has_prefill=sum(s + 1 in steps and steps[s + 1][1] for s in long))
     values = sorted((spans[s][1] - spans[s][0]) / 1e6 for s in spans
                     if s in steps and not steps[s][1] and group(s) == "guard")
     if values:
