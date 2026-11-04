@@ -22,7 +22,7 @@ gains over the rule is the 223 slow steps during GPU bursts, which the
 rule calls host delay.
 
 All six rows come from one session on 2026-11-01, with the collector of
-commit 3218aeb in trace mode (every kernel traced with CUPTI). Rows 1-5
+commit 3218aeb in trace mode (every kernel traced with CUPTI). Rows 1–5
 are the blind multi-cause benchmark: 3 seeds, 27 injected events (9 long
 prompts, 9 bursts of another process's GPU work, 9 stops of the engine
 process). Row 6 is open-loop load, the median of 5 rounds.
@@ -943,11 +943,8 @@ made there:
   mode.
 - **A shared host.** The runs shared the machine with other projects' jobs.
   Every run held the GPU lock those jobs share, but host load varied
-  (1-minute load average 1.1–4.7 in the first open-loop round, 2.0–3.6 in
-  the before/after round, 6.5–10.9 in the first multi-cause round and
-  2.3–3.9 in the second, about 9–10 in the first CUPTI-off pair, and
-  1.85–6.57 and 2.05–3.32 in the sampled-mode open-loop and multi-cause
-  runs), and host
+  between sessions, from about 1 to 13 (1-minute average; per session in
+  [results/README.md](results/README.md#host-load-per-session)), and host
   load changes host-side timings.
 - **No CPU scheduling evidence.** Host-side CPU stalls are reported as
   `between_steps`, without run-queue evidence.
