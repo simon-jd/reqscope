@@ -153,6 +153,39 @@ Request& Analyzer::request(const RequestKey& key) {
     return it->second;
 }
 
+// Sampled mode keeps kernel tracing on for one step after each run of traced
+// steps (the guard step), and CUPTI gives that step's node records the end
+// times of later launches of the same graphs (docs/design.md, "Sampled
+// tracing"). Node records of a step that was not traced are therefore left
+// out before anything reads them. Runs before build_indices takes pointers
+// into records_.
+void Analyzer::drop_untraced_node_records() {
+    if (sampled_producers_.empty()) return;
+    std::set<Key> traced;
+    std::map<Key, std::uint64_t> step_of;   // (producer, corr) -> step id
+    for (const auto& record : records_) {
+        if (record.ambiguous || !sampled_producers_.contains(record.producer)) continue;
+        const auto& raw = *record.data;
+        if (record.type == "TracedStep") {
+            if (const auto step_id = number(raw, "step_id")) traced.insert(Key{record.producer, *step_id});
+        } else if (record.type == "ExtCorr") {
+            const auto corr = number(raw, "corr");
+            const auto step_id = number(raw, "step_id");
+            if (corr && step_id) step_of[Key{record.producer, *corr}] = *step_id;
+        }
+    }
+    std::erase_if(records_, [&](const Record& record) {
+        if (record.type != "GpuActivity" || !sampled_producers_.contains(record.producer)) return false;
+        const auto& raw = *record.data;
+        if (str(raw, "kind") != "kernel" && num(raw, "graph_node_id") == 0) return false;
+        const auto corr = number(raw, "corr");
+        const auto found = corr ? step_of.find(Key{record.producer, *corr}) : step_of.end();
+        if (found == step_of.end() || traced.contains(Key{record.producer, found->second})) return false;
+        ++untraced_node_records_;
+        return true;
+    });
+}
+
 void Analyzer::build_indices() {
     std::set<Key> traced;
     for (const auto& record : records_) {
@@ -215,7 +248,8 @@ void Analyzer::build_indices() {
         }
     }
     // In a sampled capture only the steps named by TracedStep records have
-    // every kernel; the others have graph envelopes only.
+    // every kernel; the others have copies only, and the guard steps also
+    // node records that link() leaves out.
     for (auto& [key, step] : steps_)
         if (sampled_producers_.contains(key.first)) step.traced = traced.contains(key);
     for (auto& [key, step] : steps_) {

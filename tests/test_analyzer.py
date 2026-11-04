@@ -268,7 +268,8 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
 
     def test_sampled_capture_judges_only_traced_steps(self):
         # Even steps traced; the GPU slowdown at 21 and the host delay at 13
-        # fall on steps that were not, and their kernels are not used.
+        # fall on steps that were not, and their kernels (in a real capture
+        # only the guard step after each traced one has any) are left out.
         events = {8: {"gpu": 2000}, 13: {"host": 3000}, 16: {"prefill": True, "gpu": 1500}, 21: {"gpu": 2000}}
         traced = [dict(type="TracedStep", step_id=k, reason="periodic") for k in range(2, 31, 2)]
         gaps, report = self.decode_trace("sampled.rqs", events, extra=traced, header_extra={"mode": "sampled"})
@@ -278,7 +279,9 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
                          {8: True, 13: False, 16: True, 21: False})
         # Baseline: the 14 traced steps without prefill.
         self.assertEqual(gaps[8]["cause_evidence"]["comparable_steps"], 14)
-        self.assertEqual(report["summary"]["sampled_steps"], {"steps": 30, "traced": 15})
+        self.assertEqual(report["summary"]["sampled_steps"],
+                         {"steps": 30, "traced": 15, "untraced_node_records_ignored": 15})
+        self.assertEqual(report["summary"]["linked_gpu_activities"], 15)
         # Outside sampled mode the same records change nothing.
         gaps, report = self.decode_trace("not-sampled.rqs", events, extra=traced)
         self.assertEqual({k: g["cause"] for k, g in gaps.items()},

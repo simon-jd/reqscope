@@ -253,6 +253,7 @@ private:
     void diagnostic(const std::string& reason, const Record* record = nullptr);
     void add_loss(const Json& raw, const std::string& record_id = "");
     void read_records();
+    void drop_untraced_node_records();
     void build_indices();
     Request& request(const RequestKey& key);
     bool affected(const std::string& producer, Interval span) const;
@@ -374,6 +375,7 @@ private:
     Json graph_topology_ = Json::array();
     std::set<std::tuple<std::string, std::string, std::string>> edge_keys_;
     Time loss_count_ = 0;
+    Time untraced_node_records_ = 0;   // sampled mode: guard steps' node records, not used
     double gpu_duration_ = 0;
 };
 

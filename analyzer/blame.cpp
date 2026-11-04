@@ -24,8 +24,8 @@ const Analyzer::StepGpu& Analyzer::step_gpu(const Step* step) const {
         struct Item { Time start, end, launched; };
         std::map<const Step*, std::vector<Item>> items;
         for (const auto& activity : activities_) {
-            // A step sampled mode did not trace has graph envelopes only: no
-            // GPU evidence for the cause rules, and no part in baselines.
+            // A step sampled mode did not trace has copies only: no GPU
+            // evidence for the cause rules, and no part in baselines.
             if (!activity.step || !activity.record->timed || !activity.step->traced) continue;
             const auto span = activity.record->span;
             const bool launched = activity.api && activity.api->timed;
@@ -345,7 +345,8 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
             ++sampled;
             traced += step.traced;
         }
-        summary["sampled_steps"] = Json::object({{"steps", sampled}, {"traced", traced}});
+        summary["sampled_steps"] = Json::object({{"steps", sampled}, {"traced", traced},
+                                                 {"untraced_node_records_ignored", untraced_node_records_}});
     }
     Json trace = trace_status();
     Json warnings = Json::array();

@@ -53,6 +53,7 @@ Time union_duration(std::vector<Interval> spans) {
 
 Analyzer::Analyzer(const Trace& input, bool edges) : trace_(input), record_edges_(edges) {
     read_records();
+    drop_untraced_node_records();
     build_indices();
     derive_probe_bounds();     // before link(): probe copies are not application work
     link();
