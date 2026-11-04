@@ -42,6 +42,12 @@ Per run and summed per collector mode:
 - host-delay verdicts that blame flagged "collector_active" (the
   collector was busy for at least half of the host extra), by true cause,
   and host-delay precision over the verdicts that were not flagged.
+
+Sampled runs (--mode sampled) are grouped by their sampling rules, as in
+bench/score.py. For them the output also has the share of all engine steps
+traced (blame's sampled_steps), how many slow steps were traced, and the
+same metrics over the traced slow steps alone (traced_only): what blame
+gets right on the steps it can see.
 """
 from __future__ import annotations
 
@@ -52,7 +58,7 @@ import statistics
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from score import mean_load, reqscope  # noqa: E402
+from score import arm, arm_order, mean_load, reqscope  # noqa: E402
 
 CAUSES = ["interference", "gpu_slowdown", "host_delay"]
 PREDICTED = CAUSES + ["unexplained", "undetermined"]
@@ -73,7 +79,8 @@ def steps_of(blame: dict) -> dict[int, dict]:
             entry = steps.setdefault(step["step_id"],
                                      {"begin": gap["begin_ns"], "end": gap["end_ns"], "causes": Counter(),
                                       "flagged": False, "evidence": gap.get("cause_evidence", {}), "excess": 0,
-                                      "prefill": any(m["phase"] == "prefill" for m in step["co_scheduled"])})
+                                      "prefill": any(m["phase"] == "prefill" for m in step["co_scheduled"]),
+                                      "traced": step.get("traced", True)})
             entry["causes"][gap["cause"]] += 1
             entry["excess"] = max(entry["excess"], gap["excess_ns"])
             entry["flagged"] |= "collector_active" in gap.get("flags", [])
@@ -147,7 +154,8 @@ def metrics(confusion: Counter, detected: Counter, injected: Counter, flagged: C
     return {"per_cause": per_cause, "confusion": matrix, "collector_active_flags": flags}
 
 
-def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Counter, Counter, dict]:
+def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Counter, Counter, dict,
+                                                   tuple[Counter, Counter]]:
     client = json.loads((run / "client.json").read_text())
     blame_path = run / "blame.json"
     if not blame_path.exists():
@@ -155,7 +163,7 @@ def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Count
     blame = json.loads(blame_path.read_text())
     events = client["results"]["events"]
     confusion, detected, injected = Counter(), Counter(), Counter(e["cause"] for e in events)
-    flagged = Counter()
+    flagged, traced, traced_hits = Counter(), Counter(), defaultdict(set)
     hits = defaultdict(set)
     evidence = defaultdict(lambda: defaultdict(list))
     times, median = step_times(run, rule) if rule in ("vllm", "nsys") else ({}, 0)
@@ -166,18 +174,28 @@ def score(run: Path, rule: str = "blame") -> tuple[dict, Counter, Counter, Count
         flagged[(cause, predicted)] += step["flagged"]
         if index is not None and predicted == cause:
             hits[cause].add(index)
+        if step["traced"]:
+            traced[(cause, predicted)] += 1
+            if index is not None and predicted == cause:
+                traced_hits[cause].add(index)
         if rule == "blame" and predicted == cause and cause in ("gpu_slowdown", "host_delay"):
             for field in EVIDENCE:
                 if step["evidence"].get(field) is not None:
                     evidence[cause][field].append(step["evidence"][field])
     for cause, found in hits.items():
         detected[cause] = len(found)
-    result = {"run": run.name, "rule": rule, "mode": client["mode"], "seed": client["results"]["seed"],
+    sampled = client["mode"] == "sampled"
+    traced_detected = Counter({cause: len(found) for cause, found in traced_hits.items()})
+    result = {"run": run.name, "rule": rule, "mode": arm(client), "seed": client["results"]["seed"],
               "load1_mean": mean_load(client.get("loadavg", []), client["started_ns"], client["ended_ns"]),
               "slow_steps": sum(confusion.values()), "trace_status": blame.get("trace", {}).get("status"),
               **({"rule_median_ns": median, "rule_steps_timed": len(times)} if times else {}),
               **metrics(confusion, detected, injected, flagged), "verdict_evidence_medians": medians(evidence)}
-    return result, confusion, detected, injected, flagged, evidence
+    if sampled:
+        result["sampled_steps"] = blame["summary"].get("sampled_steps")
+        result["traced_slow_steps"] = sum(traced.values())
+        result["traced_only"] = metrics(traced, traced_detected, injected, Counter())["per_cause"]
+    return result, confusion, detected, injected, flagged, evidence, (traced, traced_detected)
 
 
 def main() -> None:
@@ -188,9 +206,9 @@ def main() -> None:
     if not args or rule not in RULES:
         sys.exit(__doc__)
     runs, totals = [], defaultdict(lambda: [Counter(), Counter(), Counter(), Counter(), [],
-                                            defaultdict(lambda: defaultdict(list))])
+                                            defaultdict(lambda: defaultdict(list)), Counter(), Counter(), [0, 0]])
     for path in args:
-        result, confusion, detected, injected, flagged, evidence = score(Path(path), rule)
+        result, confusion, detected, injected, flagged, evidence, (traced, traced_detected) = score(Path(path), rule)
         runs.append(result)
         total = totals[result["mode"]]
         total[0].update(confusion); total[1].update(detected); total[2].update(injected); total[3].update(flagged)
@@ -198,9 +216,16 @@ def main() -> None:
         for cause, fields in evidence.items():
             for field, values in fields.items():
                 total[5][cause][field] += values
-    by_mode = {mode: {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i, f),
-                      "verdict_evidence_medians": medians(e)}
-               for mode, (c, d, i, f, seeds, e) in totals.items()}
+        total[6].update(traced); total[7].update(traced_detected)
+        if result.get("sampled_steps"):
+            total[8][0] += result["sampled_steps"]["steps"]; total[8][1] += result["sampled_steps"]["traced"]
+    by_mode = {}
+    for mode, (c, d, i, f, seeds, e, t, td, steps) in sorted(totals.items(), key=lambda item: arm_order(item[0])):
+        by_mode[mode] = {"seeds": seeds, "slow_steps": sum(c.values()), **metrics(c, d, i, f),
+                         "verdict_evidence_medians": medians(e)}
+        if mode.startswith("sampled"):
+            by_mode[mode].update(traced_share=ratio(steps[1], steps[0]), traced_slow_steps=sum(t.values()),
+                                 traced_only=metrics(t, td, i, Counter())["per_cause"])
     print(json.dumps({"rule": rule, "by_mode": by_mode, "runs": runs}, indent=2))
 
 

@@ -20,6 +20,10 @@ openloop
     of each median against mode "off". Each run also gets the host's mean
     1-minute load average over its load window, from client.json or, for
     runs that did not record it, from a bench/sample_load.py CSV (--load).
+    Sampled runs are grouped by their sampling rules ("sampled 1/4",
+    "sampled trigger 150% x32", from the run's --collector-env), and each
+    gets the share of engine steps traced during each rate's load window,
+    from the collector's CollectorStats records.
 
 `reqscope` is $REQSCOPE_BIN, else build/reqscope. Reading a large capture
 needs more than the reader's default 2 GiB budget, so the trace budget
@@ -32,9 +36,11 @@ import json
 import os
 from pathlib import Path
 import statistics
+import struct
 import subprocess
 import sys
 import time
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get("REQSCOPE_BIN", ROOT / "build/reqscope"))
@@ -148,26 +154,77 @@ def mean_load(samples: list, begin: int, end: int) -> float | None:
     return round(statistics.mean(window), 2) if window else None
 
 
+def arm(client: dict) -> str:
+    """The collector mode, with the sampling rules of a sampled run."""
+    if client["mode"] != "sampled":
+        return client["mode"]
+    env = client.get("collector_env") or {}
+    every = int(env.get("REQSCOPE_TRACE_EVERY", 0))
+    trigger = int(env.get("REQSCOPE_TRACE_TRIGGER_PERCENT", 0))
+    if not every and not trigger:
+        every = 16                               # the collector's default
+    rules = ([f"1/{every}"] if every else []) + \
+        ([f"trigger {trigger}% x{env.get('REQSCOPE_TRACE_WINDOW', '32')}"] if trigger else [])
+    return "sampled " + " + ".join(rules)
+
+
+def arm_order(label: str) -> tuple:
+    return MODES.index(label.split()[0]), label
+
+
+def sampling_counts(capture: Path) -> list[tuple[int, dict]]:
+    """(timestamp, sampling counts) of every CollectorStats record of a sampled
+    capture, in time order; only frames that mention them are decoded."""
+    rows = []
+    for segment in sorted(capture.glob("segment-*.rqs")):
+        data = segment.read_bytes()
+        offset = 8
+        while offset + 8 <= len(data):
+            length, checksum = struct.unpack_from("<II", data, offset)
+            payload = data[offset + 8:offset + 8 + length]
+            offset += 8 + length
+            if b'"sampling":' in payload and zlib.crc32(payload) & 0xFFFFFFFF == checksum:
+                record = json.loads(payload)
+                if record.get("type") == "CollectorStats":
+                    rows.append((record["timestamp"], record["sampling"]))
+    return sorted(rows, key=lambda row: row[0])
+
+
+def traced_share(counts: list[tuple[int, dict]], begin: int, end: int) -> float | None:
+    """Traced steps over steps between the last counts before begin and the first after end."""
+    before = [c for t, c in counts if t <= begin]
+    after = [c for t, c in counts if t >= end]
+    if not before or not after or after[0]["steps"] == before[-1]["steps"]:
+        return None
+    return round((after[0]["traced"] - before[-1]["traced"]) / (after[0]["steps"] - before[-1]["steps"]), 4)
+
+
 def openloop(runs: list[Path], load: list) -> dict:
     rows = []
     for run in runs:
         client = json.loads((run / "client.json").read_text())
         samples = client.get("loadavg") or load
+        counts = sampling_counts(run / "capture") if client["mode"] == "sampled" else []
         for block in client["results"]:
             done = [r for r in block["results"] if len(r["chunk_ns"]) >= 2]
-            rows.append({"run": run.name, "mode": client["mode"], "round": client["round"], "rate": block["rate"],
+            rows.append({"run": run.name, "mode": arm(client), "round": client["round"], "rate": block["rate"],
                          "sent": len(block["results"]),
                          **latency(done, (block["ended_ns"] - block["started_ns"]) / 1e9),
-                         "load1_mean": mean_load(samples, block["started_ns"], block["ended_ns"])})
+                         "load1_mean": mean_load(samples, block["started_ns"], block["ended_ns"]),
+                         **({"traced_share": traced_share(counts, block["started_ns"], block["ended_ns"])}
+                            if client["mode"] == "sampled" else {})})
     groups = defaultdict(list)
     for row in rows:
         groups[(row["rate"], row["mode"])].append(row)
     summary = []
-    for (rate, mode), group in sorted(groups.items(), key=lambda item: (item[0][0], MODES.index(item[0][1]))):
+    for (rate, mode), group in sorted(groups.items(), key=lambda item: (item[0][0], arm_order(item[0][1]))):
         entry = {"rate": rate, "mode": mode, "rounds": len(group)}
         for metric in METRICS:
             values = [row[metric] for row in group]
             entry[metric] = {"median": round(statistics.median(values), 2), "min": min(values), "max": max(values)}
+        shares = [row["traced_share"] for row in group if row.get("traced_share") is not None]
+        if shares:
+            entry["traced_share"] = {"median": statistics.median(shares), "min": min(shares), "max": max(shares)}
         summary.append(entry)
     for entry in summary:
         base = next((e for e in summary if e["rate"] == entry["rate"] and e["mode"] == "off"), None)
@@ -176,7 +233,7 @@ def openloop(runs: list[Path], load: list) -> dict:
     return {"runs": rows, "summary": summary}
 
 
-MODES = ["off", "plugin", "light", "trace"]
+MODES = ["off", "plugin", "light", "sampled", "trace"]
 
 
 def main() -> None:

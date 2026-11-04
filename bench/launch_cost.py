@@ -1,6 +1,6 @@
 """Host cost of launching decode-like steps under each collector mode, without vLLM.
 
-    python bench/launch_cost.py --mode off|plugin|light|trace --out results/raw/launch-trace.json
+    python bench/launch_cost.py --mode off|plugin|light|trace|sampled --out results/raw/launch-trace.json
 
 Each step launches one CUDA graph of --nodes small kernels and --eager
 kernels outside it, between reqscope_push_step and reqscope_pop_step (as
@@ -12,7 +12,10 @@ step waits for its sampled tokens. The child process measures per step:
 step: with the default, a step takes about 5 ms on an RTX 4090, close to a
 vLLM decode step, so the collector sees a similar record rate. The launch
 time is what CUPTI's per-launch work and any stall of the launching thread
-add to.
+add to. In sampled mode (with --env REQSCOPE_TRACE_EVERY=N) step i is traced
+when i % N == 0, counting warm-up steps; the report splits the times into
+traced steps, the step right after each (the first back in light mode) and
+the others.
 
 The collector runs as in bench/interference.py: CUDA_INJECTION64_PATH (light,
 trace), REQSCOPE_MODE, and libcupti preloaded in every mode. Extra
@@ -89,24 +92,43 @@ def summary(values: list[int]) -> dict:
 
 
 def capture_summary(capture: Path) -> dict:
-    """Loss counts by reason, and the collector's last CollectorStats totals."""
+    """Loss counts by reason, GPU records by kind, TracedStep records, and the
+    collector's last CollectorStats totals."""
     from capture_stats import frames
-    losses, stats = {}, None
+    losses, kinds, stats, traced = {}, {}, None, 0
     for segment in sorted(capture.glob("segment-*.rqs")):
         for record, _ in frames(segment):
             if record and record.get("type") == "Loss":
                 losses[record["reason"]] = losses.get(record["reason"], 0) + record.get("count", 0)
+            elif record and record.get("type") == "GpuActivity":
+                kinds[record.get("kind")] = kinds.get(record.get("kind"), 0) + 1
+            elif record and record.get("type") == "TracedStep":
+                traced += 1
             elif record and record.get("type") == "CollectorStats":
                 stats = record
-    out = {"losses": losses}
+    out = {"losses": losses, "gpu_records_by_kind": kinds, "traced_step_records": traced}
     if stats:
         out.update(writer_cpu_s=round(stats["writer_cpu_ns"] / 1e9, 3), cupti_records=stats["cupti_records"])
+        switch = stats["sites"].get("switch_granularity")
+        if switch and switch["calls"]:
+            out["switch_granularity"] = {"calls": switch["calls"], "mean_us": round(switch["ns"] / switch["calls"] / 1e3, 1),
+                                         "max_us": round(switch["max_ns"] / 1e3, 1)}
     return out
+
+
+def split(values: list[int], warmup: int, every: int) -> dict:
+    """Sampled mode: times of traced steps, of the step after each, and of the rest."""
+    groups = {"traced": [], "after_traced": [], "other": []}
+    for k, value in enumerate(values):
+        i = warmup + k
+        group = "traced" if i % every == 0 else "after_traced" if i % every == 1 else "other"
+        groups[group].append(value)
+    return {name: summary(group) for name, group in groups.items() if group}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=["off", "plugin", "light", "trace"], required=True)
+    parser.add_argument("--mode", choices=["off", "plugin", "light", "trace", "sampled"], required=True)
     parser.add_argument("--out", type=Path, required=True, help="result JSON file")
     parser.add_argument("--nodes", type=int, default=400, help="kernels in the graph")
     parser.add_argument("--eager", type=int, default=30, help="kernels launched outside the graph per step")
@@ -128,7 +150,7 @@ def main() -> None:
             env.update({"REQSCOPE_LIBRARY": str(library), "REQSCOPE_MODE": args.mode,
                         "REQSCOPE_OUTPUT": capture, "REQSCOPE_SOCKET": capture + "/control.sock",
                         "REQSCOPE_RING_SECONDS": "5", "REQSCOPE_RING_BYTES": str(256 << 20)})
-            if args.mode in ("light", "trace"):
+            if args.mode in ("light", "trace", "sampled"):
                 env["CUDA_INJECTION64_PATH"] = str(library)
         env.update(extra)
         command = [str(args.python), "-c", CHILD, str(args.nodes), str(args.eager), str(args.steps),
@@ -145,6 +167,11 @@ def main() -> None:
     report = {"mode": args.mode, "env": extra, "nodes": args.nodes, "eager": args.eager, "steps": args.steps,
               "size": args.size, "load1": float(load), "launch": summary(times["launch_ns"]),
               "step": summary(times["step_ns"]), "capture": captured}
+    if args.mode == "sampled":
+        every = int(extra.get("REQSCOPE_TRACE_EVERY", "16"))
+        if every > 1:
+            report["launch_by_step"] = split(times["launch_ns"], args.warmup, every)
+            report["step_by_step"] = split(times["step_ns"], args.warmup, every)
     args.out.write_text(json.dumps(report))
     print(json.dumps(report))
 

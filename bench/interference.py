@@ -2,8 +2,8 @@
 
     python bench/interference.py interference --mode trace --out results/raw/interference
     python bench/interference.py overhead --mode off|plugin|light|trace --out results/raw/overhead-off
-    python bench/interference.py openloop --mode off|plugin|light|trace --rates 8,16,24 --out results/raw/openloop-off-r1
-    python bench/interference.py multicause --mode trace|plugin --seed 1 --out results/raw/multicause-trace-s1
+    python bench/interference.py openloop --mode off|plugin|light|trace|sampled --rates 8,16,24 --out results/raw/openloop-off-r1
+    python bench/interference.py multicause --mode trace|plugin|sampled --seed 1 --out results/raw/multicause-trace-s1
     python bench/interference.py multicause --mode plugin --nsys --vllm-iteration-log --seed 1 --out results/raw/multicause-nsys-s1
 
 interference
@@ -38,6 +38,10 @@ Collector modes:
             membership and request lifecycles, no CUPTI
     light   plugin + CUPTI injection, one record per CUDA graph launch
     trace   plugin + CUPTI injection, one record per kernel
+    sampled plugin + CUPTI injection, light mode except on the steps the
+            collector picks (one in REQSCOPE_TRACE_EVERY, and/or a window of
+            REQSCOPE_TRACE_WINDOW steps after a slow decode step), which get
+            one record per kernel
 
 The server is vLLM 0.31.0 from the Python environment given by --python
 (default: this interpreter), with the reqscope plugin installed in it (see
@@ -444,7 +448,10 @@ def gpu_lock(path: Path | None):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("experiment", choices=["interference", "overhead", "openloop", "multicause"])
-    parser.add_argument("--mode", choices=["off", "plugin", "light", "trace"], default="trace")
+    parser.add_argument("--mode", choices=["off", "plugin", "light", "trace", "sampled"], default="trace",
+                        help="sampled: light mode with kernel tracing for some steps, chosen by "
+                             "REQSCOPE_TRACE_EVERY / REQSCOPE_TRACE_TRIGGER_PERCENT / REQSCOPE_TRACE_WINDOW "
+                             "(--collector-env)")
     parser.add_argument("--out", type=Path, required=True, help="new run directory")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--seconds", type=float, default=None,
