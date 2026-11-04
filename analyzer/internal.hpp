@@ -139,6 +139,8 @@ struct Step {
     std::vector<const Record*> gpu;
     std::set<Time> tids;
     bool ambiguous = false;
+    // False for a step that sampled mode did not trace kernel by kernel.
+    bool traced = true;
 };
 
 struct Activity {
@@ -341,6 +343,7 @@ private:
     std::set<std::string> probe_copy_ids_;
     std::map<std::string, ClockBracket> brackets_;
     std::set<std::string> monotonic_producers_;
+    std::set<std::string> sampled_producers_;
     std::map<std::string, std::set<std::string>> scheduler_targets_;
     std::vector<Loss> losses_;
     std::set<std::string> loss_keys_;

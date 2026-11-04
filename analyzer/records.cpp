@@ -58,6 +58,7 @@ void Analyzer::read_records() {
     for (const auto& header : trace_.headers) {
         const auto producer = str(header, "producer");
         if (str(header, "clock") == "CLOCK_MONOTONIC") monotonic_producers_.insert(producer);
+        if (str(header, "mode") == "sampled") sampled_producers_.insert(producer);
         const bool graph_capture = flag(header, "graph_resource_callbacks", false);
         auto [graph_capture_it, inserted_graph_capture] = graph_resource_capture_.emplace(producer, graph_capture);
         if (!inserted_graph_capture) graph_capture_it->second = graph_capture_it->second && graph_capture;
@@ -153,9 +154,14 @@ Request& Analyzer::request(const RequestKey& key) {
 }
 
 void Analyzer::build_indices() {
+    std::set<Key> traced;
     for (const auto& record : records_) {
         const auto& raw = *record.data;
         const auto corr = number(raw, "corr");
+        if (record.type == "TracedStep") {
+            if (const auto step_id = number(raw, "step_id")) traced.insert(Key{record.producer, *step_id});
+            continue;
+        }
         if ((record.type == "ApiCall" || record.type == "GraphLaunch") && corr)
             apis_[{record.producer, *corr}].push_back(&record);
         else if (record.type == "ExtCorr" && corr)
@@ -208,6 +214,10 @@ void Analyzer::build_indices() {
             step.members.push_back({id, tokens_field(member, "tokens").value_or(Tokens{}), str(member, "phase", "unknown")});
         }
     }
+    // In a sampled capture only the steps named by TracedStep records have
+    // every kernel; the others have graph envelopes only.
+    for (auto& [key, step] : steps_)
+        if (sampled_producers_.contains(key.first)) step.traced = traced.contains(key);
     for (auto& [key, step] : steps_) {
         for (const auto& member : step.members) {
             request({key.first, member.request}).steps.push_back(&step);

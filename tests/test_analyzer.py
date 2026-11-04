@@ -187,7 +187,7 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
         self.assertEqual(report["trace"]["issues_by_reason"], {"collector_failed": 1})
         self.assertEqual(report["trace"]["issues"][0]["detail"], "segment write failed")
 
-    def decode_trace(self, name, events, with_gpu=True, extra=()):
+    def decode_trace(self, name, events, with_gpu=True, extra=(), header_extra=None):
         """30 decode steps of request "a", one token every 2,000 ns; events[k] changes step k.
 
         gpu: extra kernel time; host: extra host time after the kernel;
@@ -218,7 +218,7 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
         if not with_gpu:
             rows = [r for r in rows if r["type"] != "GpuActivity"]
         rows += list(extra)
-        report = json.loads(self.cli("blame", write_segment(self.root / name, rows)).stdout)
+        report = json.loads(self.cli("blame", write_segment(self.root / name, rows, header_extra=header_extra)).stdout)
         [row] = [r for r in report["requests"] if r["req_id"] == "a"]
         return {gap["steps"][0]["step_id"]: gap for gap in row["slow_gaps"]}, report
 
@@ -265,6 +265,26 @@ class AnalyzerBlackBoxTests(unittest.TestCase):
                                                    16: {"prefill": True, "gpu": 1500}}, with_gpu=False)
         self.assertEqual({k: g["cause"] for k, g in gaps.items()},
                          {8: "undetermined", 12: "undetermined", 16: "interference"})
+
+    def test_sampled_capture_judges_only_traced_steps(self):
+        # Even steps traced; the GPU slowdown at 21 and the host delay at 13
+        # fall on steps that were not, and their kernels are not used.
+        events = {8: {"gpu": 2000}, 13: {"host": 3000}, 16: {"prefill": True, "gpu": 1500}, 21: {"gpu": 2000}}
+        traced = [dict(type="TracedStep", step_id=k, reason="periodic") for k in range(2, 31, 2)]
+        gaps, report = self.decode_trace("sampled.rqs", events, extra=traced, header_extra={"mode": "sampled"})
+        self.assertEqual({k: g["cause"] for k, g in gaps.items()},
+                         {8: "gpu_slowdown", 13: "undetermined", 16: "interference", 21: "undetermined"})
+        self.assertEqual({k: g["steps"][0]["traced"] for k, g in gaps.items()},
+                         {8: True, 13: False, 16: True, 21: False})
+        # Baseline: the 14 traced steps without prefill.
+        self.assertEqual(gaps[8]["cause_evidence"]["comparable_steps"], 14)
+        self.assertEqual(report["summary"]["sampled_steps"], {"steps": 30, "traced": 15})
+        # Outside sampled mode the same records change nothing.
+        gaps, report = self.decode_trace("not-sampled.rqs", events, extra=traced)
+        self.assertEqual({k: g["cause"] for k, g in gaps.items()},
+                         {8: "gpu_slowdown", 13: "host_delay", 16: "interference", 21: "gpu_slowdown"})
+        self.assertNotIn("traced", gaps[8]["steps"][0])
+        self.assertNotIn("sampled_steps", report["summary"])
 
     def test_when_both_grow_the_larger_component_names_the_cause(self):
         gaps, _ = self.decode_trace("mostly-gpu.rqs", {8: {"gpu": 1500, "host": 500}})

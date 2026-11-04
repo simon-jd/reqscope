@@ -225,8 +225,12 @@ are applied in order; "excess" is the gap minus the request's median gap.
 1. **interference**: at least 128 prefill tokens of other requests were
    co-scheduled in the producing step.
 2. **undetermined**: the producing step has no GPU records (plugin-only
-   capture, or no linked GPU work). Without GPU time, GPU slowness and
-   host delay both look like a long gap.
+   capture, or no linked GPU work), or the capture is sampled and the step
+   has no `TracedStep` record. Without GPU time, GPU slowness and host
+   delay both look like a long gap. In a sampled capture only traced steps
+   enter the baselines below, and each slow gap's step says whether it was
+   traced (`traced`); `blame`'s summary counts traced steps
+   (`sampled_steps`).
 3. Otherwise two components are measured against baselines:
    - **GPU extra**: how much the step's GPU busy time, its GPU wait inside
      the step, and its launch wait exceed the medians of comparable steps.

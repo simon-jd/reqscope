@@ -24,7 +24,9 @@ const Analyzer::StepGpu& Analyzer::step_gpu(const Step* step) const {
         struct Item { Time start, end, launched; };
         std::map<const Step*, std::vector<Item>> items;
         for (const auto& activity : activities_) {
-            if (!activity.step || !activity.record->timed) continue;
+            // A step sampled mode did not trace has graph envelopes only: no
+            // GPU evidence for the cause rules, and no part in baselines.
+            if (!activity.step || !activity.record->timed || !activity.step->traced) continue;
             const auto span = activity.record->span;
             const bool launched = activity.api && activity.api->timed;
             items[activity.step].push_back({span.start, span.end, launched ? activity.api->span.end : 0});
@@ -159,6 +161,9 @@ Json Analyzer::cause(const Step* step, Time begin, Time end, Time excess, Tokens
     if (prefill_tokens >= kInterferencePrefillTokens)
         return Json::object({{"cause", "interference"}, {"evidence", evidence}});
     const auto& gpu = step ? step_gpu(step) : step_gpu(nullptr);
+    if (step && !step->traced)
+        return Json::object({{"cause", "undetermined"}, {"evidence", evidence},
+            {"reason", "sampled mode did not trace the producing step; GPU and host delay look alike"}});
     if (!step || !gpu.known)
         return Json::object({{"cause", "undetermined"}, {"evidence", evidence},
             {"reason", "no GPU records for the producing step; GPU and host delay look alike"}});
@@ -273,8 +278,10 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
                         prefill_tokens += member.tokens;
                     }
                 }
-                steps.push_back(Json::object({{"step_id", step->id}, {"host_ns", span.end - span.start},
-                    {"gpu_busy_ns", union_duration(busy)}, {"co_scheduled", members}}));
+                Json entry = Json::object({{"step_id", step->id}, {"host_ns", span.end - span.start},
+                    {"gpu_busy_ns", union_duration(busy)}, {"co_scheduled", members}});
+                if (sampled_producers_.contains(step->record->producer)) entry["traced"] = step->traced;
+                steps.push_back(std::move(entry));
             }
             Json blamed = Json::array();
             for (const auto& [culprit, tokens] : prefill) {
@@ -331,6 +338,15 @@ Json Analyzer::blame(const std::string& only, double slow_factor) const {
     for (const auto& [name, count] : causes) cause_counts[name] = count;
     summary["slow_gaps_by_cause"] = cause_counts;
     summary["host_delay_gaps_with_collector_active"] = flagged_host_delays;
+    if (!sampled_producers_.empty()) {
+        Time sampled = 0, traced = 0;
+        for (const auto& [key, step] : steps_) {
+            if (!sampled_producers_.contains(key.first)) continue;
+            ++sampled;
+            traced += step.traced;
+        }
+        summary["sampled_steps"] = Json::object({{"steps", sampled}, {"traced", traced}});
+    }
     Json trace = trace_status();
     Json warnings = Json::array();
     if (fallback_steps)

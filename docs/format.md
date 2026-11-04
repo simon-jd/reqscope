@@ -51,7 +51,7 @@ them.
 | Diagnostic | source, reason, stopped; a component that could not run or gave up (`stopped`: true), such as the clock probe (with the driver `error` and the `probes` completed) or the vLLM plugin after a collector failure |
 | AdapterConfig | vllm_version, runner, executor, async_scheduling, cudagraph_mode, tensor_parallel_size, pipeline_parallel_size; written once by the vLLM plugin |
 | Step | step_id, t_begin, t_end, tid, members[{req_id, tokens, phase}], preempted, finished |
-| TracedStep | step_id, reason = periodic / triggered; sampled mode only: this step's kernels were traced one by one. A step without one was not traced, or its record was lost |
+| TracedStep | step_id, reason = periodic / triggered; sampled mode only: this step's kernels were traced one by one. A step without one was not traced, or its record was lost; the analyzer treats both as not traced |
 | Request | req_id, start, end, prompt_tokens; optional queued_until, token_times |
 | RequestTokens | req_id, first, token_times; optional token_steps (one chunk per 1,024 tokens) |
 | Sched | tid, start, end, state = on_cpu / runnable / sleeping |
