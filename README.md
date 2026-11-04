@@ -17,7 +17,7 @@ prefill and async scheduling, CUDA 13.2; synthetic load with injected causes.
 benchmark nothing else.** A trivial rule (any co-scheduled prefill means
 interference, anything else host delay) gets every interference verdict
 that blame gets. Trace mode also makes slow steps of its own, and blame
-calls them host delay, so its host-delay precision is 0.04. What blame
+calls them host delay, so its host-delay precision is 0.04 (10 of 246). What blame
 gains over the rule is the 223 slow steps during GPU bursts, which the
 rule calls host delay.
 
@@ -76,8 +76,8 @@ Each line names its session; the sections below have the tables.
 - **Single-cause interference** (2026-10-28 with an earlier build, and
   2026-10-31 with commit 2c85655): the six long prompts are the top six
   culprits in every run. Per-step precision is 1.00 (18 of 18) in all
-  five runs, and recall 0.69 to 0.86 in the four paired runs with and
-  without CUPTI.
+  five runs, and recall 0.69 to 0.86 (18 of 26 to 18 of 21) in the four
+  paired runs with and without CUPTI.
 - **Plugin alone and light mode** (2026-10-31, commit 2c85655, 5 rounds):
   within 1% of no collector on TPOT p50 and p99 at 8, 16 and 24
   requests/s.
@@ -133,9 +133,9 @@ earlier round on a busier host (load 6.5–10.9, commit 60fca57) is in
 
 | Injected cause | Trace: events found | Trace: step recall | Trace: step precision, all steps | Trace: step precision inside windows | Plugin only: events found | Plugin only: step recall |
 |---|---|---|---|---|---|---|
-| interference | 9 of 9 | 0.77 (27 of 35) | 0.90 (27 of 30) | 1.00 | 9 of 9 | 0.84 (27 of 32) |
-| GPU slowdown | 9 of 9 | 1.00 (223 of 223) | 1.00 | 1.00 | 0 of 9 | 0 (all 221 undetermined) |
-| host delay | 9 of 9 | 1.00 (10 of 10) | **0.04** (10 of 246) | 0.56 | 0 of 9 | 0 (all 9 undetermined) |
+| interference | 9 of 9 | 0.77 (27 of 35) | 0.90 (27 of 30) | 1.00 (27 of 27) | 9 of 9 | 0.84 (27 of 32) |
+| GPU slowdown | 9 of 9 | 1.00 (223 of 223) | 1.00 (223 of 223) | 1.00 (223 of 223) | 0 of 9 | 0 (all 221 undetermined) |
+| host delay | 9 of 9 | 1.00 (10 of 10) | **0.04** (10 of 246) | 0.56 (10 of 18) | 0 of 9 | 0 (all 9 undetermined) |
 
 Slow steps by true cause (rows) and blame's cause (columns), summed over
 the three seeds:
@@ -163,24 +163,25 @@ prefill, and host delay otherwise. Precision is over all slow steps.
 
 | Rule | Runs | Interference recall / precision | GPU slowdown recall / precision | Host delay recall / precision | Events found |
 |---|---|---|---|---|---|
-| blame | trace | 0.77 / 0.90 | 1.00 / 1.00 | 1.00 / 0.04 | 27 of 27 |
-| trivial | trace | 0.77 / 0.90 | 0 / — | 1.00 / 0.02 | 18 of 27 |
-| blame | plugin only | 0.84 / 0.90 | 0 / — | 0 / — | 9 of 27 |
-| trivial | plugin only | 0.84 / 0.90 | 0 / — | 1.00 / 0.04 | 18 of 27 |
+| blame | trace | 0.77 (27 of 35) / 0.90 (27 of 30) | 1.00 (223 of 223) / 1.00 (223 of 223) | 1.00 (10 of 10) / 0.04 (10 of 246) | 27 of 27 |
+| trivial | trace | 0.77 (27 of 35) / 0.90 (27 of 30) | 0 (0 of 223) / — | 1.00 (10 of 10) / 0.02 (10 of 469) | 18 of 27 |
+| blame | plugin only | 0.84 (27 of 32) / 0.90 (27 of 30) | 0 (0 of 221) / — | 0 (0 of 9) / — | 9 of 27 |
+| trivial | plugin only | 0.84 (27 of 32) / 0.90 (27 of 30) | 0 (0 of 221) / — | 1.00 (9 of 9) / 0.04 (9 of 238) | 18 of 27 |
 
 What the GPU data adds over the trivial rule, on the same trace runs, is
 exactly one thing: the 223 slow steps during GPU bursts, which the trivial
 rule calls host delay, are called GPU slowdown, all of them correctly.
-That is why host-delay precision inside the windows rises from 0.04 to
-0.56. It changes no other verdict:
+That is why host-delay precision inside the windows rises from 0.04 (10 of
+241) to 0.56 (10 of 18). It changes no other verdict:
 - **Interference** is the same step for step (27 found, 8 missed, 3 false).
   The 8 misses next to a long prompt have no co-scheduled prefill, and GPU
   data does not change that. On plugin-only runs, blame gives the same
   interference verdicts and calls everything else undetermined.
 - **Trace mode's own slow steps**: blame calls all 228 of them host delay,
   as the trivial rule does. Over all steps, host-delay precision with GPU
-  data (0.04) is no better than the trivial rule without it (0.04 on the
-  plugin-only runs, which do not have those steps).
+  data (0.04, 10 of 246) is no better than the trivial rule without it
+  (0.04, 9 of 238, on the plugin-only runs, which do not have those
+  steps).
 
 **Against Nsight Systems and vLLM's own step log.** Three more runs with the
 same seeds used the plugin alone, without reqscope's CUPTI library, under
@@ -201,18 +202,18 @@ host was busier than during the trace runs (load average 5.8–8.9 against
 
 | Rule, on the Nsight Systems runs | Interference recall / precision | GPU slowdown recall / precision | Host delay recall / precision | Events found |
 |---|---|---|---|---|
-| Nsight Systems GPU busy time | 0.84 / 0.90 | 0.98 / 1.00 | 1.00 / 0.08 | 27 of 27 |
-| vLLM iteration elapsed time | 0.84 / 0.90 | 0.95 / 0.95 | 0.33 / 0.03 | 21 of 27 |
-| trivial | 0.84 / 0.90 | 0 / — | 1.00 / 0.03 | 18 of 27 |
-| blame, plugin only | 0.84 / 0.90 | 0 / — | 0 / — | 9 of 27 |
+| Nsight Systems GPU busy time | 0.84 (27 of 32) / 0.90 (27 of 30) | 0.98 (214 of 218) / 1.00 (214 of 214) | 1.00 (9 of 9) / 0.08 (9 of 113) | 27 of 27 |
+| vLLM iteration elapsed time | 0.84 (27 of 32) / 0.90 (27 of 30) | 0.95 (207 of 218) / 0.95 (207 of 217) | 0.33 (3 of 9) / 0.03 (3 of 110) | 21 of 27 |
+| trivial | 0.84 (27 of 32) / 0.90 (27 of 30) | 0 (0 of 218) / — | 1.00 (9 of 9) / 0.03 (9 of 327) | 18 of 27 |
+| blame, plugin only | 0.84 (27 of 32) / 0.90 (27 of 30) | 0 (0 of 218) / — | 0 (0 of 9) / — | 9 of 27 |
 
 - **Nsight Systems' GPU data does as well as trace mode here.** Matched to
   steps through the plugin's NVTX ranges, it names the cause of every
   event, as trace-mode blame does, and misses 4 of the 218 GPU-burst steps.
   It added fewer slow steps of its own: 98 outside the windows over three
   runs, against trace mode's 231 on a quieter host and 6 with the plugin
-  alone. So over all steps its host-delay precision is 0.08, against
-  blame's 0.04 in trace mode. On this benchmark reqscope's own CUPTI
+  alone. So over all steps its host-delay precision is 0.08 (9 of
+  113), against blame's 0.04 (10 of 246) in trace mode. On this benchmark reqscope's own CUPTI
   tracing gives no better verdicts than Nsight Systems; both depend on the
   plugin's step and token records.
 - **vLLM's per-step log** separates GPU bursts almost as well: its elapsed
@@ -236,12 +237,12 @@ What does not work:
   called host delay, probably the engine taking in the 6,000-token request
   before scheduling its chunks. The window-based truth counts them as
   interference misses, and they are why host-delay precision inside the
-  windows is 0.56.
+  windows is 0.56 (10 of 18).
 - **Tracing's own slow steps.** Outside the windows the trace runs have 231
   slow steps against 6 with CUPTI off, and blame calls 228 of them host
   delay, so against the injected truth host-delay precision over all steps
-  is 0.04. The collector of 3ee45a6 had 503 such steps in the same session
-  (490 called host delay, precision 0.03). What is left is CUPTI's own
+  is 0.04 (10 of 246). The collector of 3ee45a6 had 503 such steps in the
+  same session (490 called host delay, precision 0.03, 15 of 511). What is left is CUPTI's own
   work inside launches ([Trace mode's own cost](#trace-modes-own-cost)).
 - **The `collector_active` flag does not separate them.** blame flags a
   host delay when the collector was busy for at least half of its host
@@ -308,11 +309,11 @@ other projects' jobs, so its 1-minute load average is recorded per run.
 
 | Run | Collector | Host load | Slow steps | In-window steps blamed on that prompt (recall) | Precision | Unexplained steps | Excess on long prompts |
 |---|---|---|---|---|---|---|---|
-| run above, 2026-10-28 (earlier build) | trace | not recorded | 30 | 18 of 22 (0.82) | 1.00 | 11 | 92.9% |
-| pair 1 | trace | about 9–10 | 129 | 18 of 25 (0.72) | 1.00 | 110 | 58.5% |
-| pair 1 | plugin only | about 9–10 | 33 | 18 of 21 (0.86) | 1.00 | 14 | 91.9% |
-| pair 2 | trace | 1.7 | 71 | 18 of 26 (0.69) | 1.00 | 52 | 74.9% |
-| pair 2 | plugin only | 1.9 | 27 | 18 of 24 (0.75) | 1.00 | 8 | 96.2% |
+| run above, 2026-10-28 (earlier build) | trace | not recorded | 30 | 18 of 22 (0.82) | 1.00 (18 of 18) | 11 | 92.9% |
+| pair 1 | trace | about 9–10 | 129 | 18 of 25 (0.72) | 1.00 (18 of 18) | 110 | 58.5% |
+| pair 1 | plugin only | about 9–10 | 33 | 18 of 21 (0.86) | 1.00 (18 of 18) | 14 | 91.9% |
+| pair 2 | trace | 1.7 | 71 | 18 of 26 (0.69) | 1.00 (18 of 18) | 52 | 74.9% |
+| pair 2 | plugin only | 1.9 | 27 | 18 of 24 (0.75) | 1.00 (18 of 18) | 8 | 96.2% |
 
 Pair 1's load comes from `uptime` during the pair (8.8 over 1 minute, 10.4
 over 5); the per-run sampler started after it. Per-run details, including
@@ -504,8 +505,8 @@ commit 3ee45a6 ("before") and of commit 3218aeb ("now") in an order rotated each
 
 | Multi-cause runs, 3 seeds | Slow steps outside the windows | Called host delay | Host-delay precision, all steps |
 |---|---|---|---|
-| trace, before | 503 | 490 | 0.03 |
-| trace, now | 231 | 228 | 0.04 |
+| trace, before | 503 | 490 | 0.03 (15 of 511) |
+| trace, now | 231 | 228 | 0.04 (10 of 246) |
 | plugin only | 6 | 0 | — |
 
 What improved and what did not:
@@ -516,7 +517,7 @@ What improved and what did not:
   the five rounds overlap (7.77–8.40 against 7.34–7.93 ms; 25.9–26.7
   against 24.8–25.9 ms), so these changes are within noise; so is TPOT
   p50 (+17.6% to +17.0%). Host-delay precision over all steps is still
-  0.04. In the open-loop runs, launches
+  0.04 (10 of 246). In the open-loop runs, launches
   over 100 µs fell from 104,247 to 11,277 in round 1, but their total time
   only from 25.1 s to 23.1 s: the long waits left are fewer and longer
   (median about 2 ms), all inside CUDA launch calls
@@ -576,7 +577,7 @@ tracing"). What it changed, first session → second:
 |---|---|---|---|
 | Kernel span of a traced decode step before an untraced one, median, multi-cause seed 1 / open-loop round 1 | 20.0 / 17.4 → 5.95 / 4.92 ms | 67.7 / 54.4 → 5.95 / 4.91 ms | 13.3 / 14.2 → 5.12 / 4.92 ms |
 | GPU busy baseline behind GPU-slowdown verdicts, median | 19.7 → 5.1 ms | 69.9 → 5.1 ms | 5.8 → 5.8 ms |
-| GPU slowdown precision | 0.94 → 1.00 | 0.85 → 1.00 | 1.00 → 1.00 |
+| GPU slowdown precision | 0.94 (58 of 62) → 1.00 (59 of 59) | 0.85 (11 of 13) → 1.00 (10 of 10) | 1.00 (202 of 202) → 1.00 (206 of 206) |
 | Traced engine-stop steps | 4, all called GPU slowdown → 2, both called host delay | 2, both called GPU slowdown → 1, called host delay | 0 → 0 |
 | Host-delay verdicts | none → 2 right of 9 | none → 1 right of 1 | none → 0 right of 7 |
 | Steps with kernel tracing on | 25% → 50% | 6.3% → 12.5% | 4.8% → 5.5% |
@@ -590,9 +591,9 @@ Multi-cause, second session:
 
 | Collector | Steps traced (kernel tracing on) | GPU slowdown: events found, step recall | GPU slowdown precision | Host delay: events found, step recall | Host-delay verdicts | Interference: events, recall / precision | Slow steps outside the windows |
 |---|---|---|---|---|---|---|---|
-| sampled 1/4 | 25% (50%) | 9, 0.26 (59 of 225) | 1.00 (59 of 59) | 2, 0.22 (2 of 9) | 2 right of 9 | 9, 0.90 / 0.90 | 19 |
-| sampled 1/16 | 6.3% (12.5%) | 8, 0.05 (10 of 214) | 1.00 (10 of 10) | 1, 0.11 (1 of 9) | 1 right of 1 | 9, 1.00 / 0.90 | 8 |
-| sampled, trigger | 5.4% (5.5%) | 9, 0.90 (206 of 228) | 1.00 (206 of 206) | **0**, 0 (0 of 9) | 0 right of 7 | 9, 0.96 / 0.90 | 16 |
+| sampled 1/4 | 25% (50%) | 9, 0.26 (59 of 225) | 1.00 (59 of 59) | 2, 0.22 (2 of 9) | 2 right of 9 | 9, 0.90 (27 of 30) / 0.90 (27 of 30) | 19 |
+| sampled 1/16 | 6.3% (12.5%) | 8, 0.05 (10 of 214) | 1.00 (10 of 10) | 1, 0.11 (1 of 9) | 1 right of 1 | 9, 1.00 (27 of 27) / 0.90 (27 of 30) | 8 |
+| sampled, trigger | 5.4% (5.5%) | 9, 0.90 (206 of 228) | 1.00 (206 of 206) | **0**, 0 (0 of 9) | 0 right of 7 | 9, 0.96 (27 of 28) / 0.90 (27 of 30) | 16 |
 
 "Slow steps outside the windows" includes each run's first slow step, when
 the 16 decodes' own prompts are prefilled together (3 per arm, called
@@ -637,16 +638,17 @@ What sampling keeps:
   difference is not all the guard step's. Each switch of kernel tracing
   takes 4.0–9.5 µs on average in the captures summarized.
 - **GPU slowdowns, on the steps it traces.** Every GPU-slowdown verdict of
-  a sampled arm was right (precision 1.00), against baselines now as in
+  a sampled arm was right (precision 1.00, 275 of 275 over the three
+  arms), against baselines now as in
   trace mode (5.1 ms). A 300 ms burst slows many consecutive steps, so the
   windows the trigger opens on its first slow steps cover most of it: it
-  found all 9 bursts and 90% of their slow steps while tracing 5.4% of all
-  steps. Periodic sampling sees about its share of them (26% at 1/4, 5% at
-  1/16) and missed one burst entirely at 1/16.
+  found all 9 bursts and 90% of their slow steps (206 of 228) while
+  tracing 5.4% of all steps. Periodic sampling sees about its share of
+  them (26%, 59 of 225, at 1/4; 5%, 10 of 214, at 1/16) and missed one burst entirely at 1/16.
 - **Interference** needs only step membership, so every arm finds all 9
   long prompts, as the plugin alone does. At 1/4 and with the trigger, 3
   and 1 slow steps inside long-prompt windows had no prefill and were not
-  traced, so they are undetermined (recall 0.90 and 0.96).
+  traced, so they are undetermined (recall 0.90, 27 of 30, and 0.96, 27 of 28).
 - **Engine stops, only when the stopped step is traced.** Periodic
   sampling traced 2 of the 9 stopped steps at 1/4 and 1 at 1/16, and blame
   called all 3 host delay; the others are undetermined.
@@ -679,7 +681,7 @@ What it loses:
 Two more observations from the first session:
 - **Trace mode had fewer slow steps of its own than before.** In that
   session its multi-cause runs had 13 slow steps outside the windows (10
-  called host delay; host-delay precision over all steps 0.47), against
+  called host delay; host-delay precision over all steps 0.47, 9 of 19), against
   231 in the before/after session, with the same trace-mode code (the
   collector changes since then add sampled mode only) and the same
   settings. Why is not established; the multi-cause tables above keep the
