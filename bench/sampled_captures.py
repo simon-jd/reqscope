@@ -7,12 +7,15 @@ Per run directory (capture/ and client.json from bench/interference.py):
 - engine steps and TracedStep records by reason;
 - GPU records by kind, how many have no timestamps, and per decode-only
   step (no prefill member) the median kernel and graph records linked to
-  traced and to untraced steps;
+  traced steps, to guard steps (an untraced step right after a traced one,
+  which keeps kernel tracing on since commit 6fd8ae3) and to the other
+  untraced steps;
 - per traced decode-only step, the time from its first kernel's start to
   its last kernel's end, split by whether the next step was traced too
-  (kernel_span_ms): median, 90th percentile and longest;
+  (kernel_span_ms): median, 90th percentile and longest; the same for
+  guard steps, whose end times are not their own;
 - the median host time of graph launch calls (cuGraphLaunch and
-  cudaGraphLaunch API records) on traced and on untraced steps;
+  cudaGraphLaunch API records) on traced, guard and other untraced steps;
 - Loss counts by reason;
 - from the last CollectorStats record: the sampling counts, and calls,
   mean and longest time of the switch between kernel tracing on and off
@@ -114,9 +117,11 @@ def summarize(run: Path) -> dict:
                 low, high = spans.get(step, (start, end))
                 spans[step] = (min(low, start), max(high, end))
     sampled = header.get("mode") == "sampled"
+    def group(s: int) -> str:
+        return "traced" if s in traced else "guard" if s - 1 in traced else "untraced"
     linked = {}
-    for name, chosen in (("traced", True), ("untraced", False)):
-        ids = [s for s, (_, prefill) in steps.items() if not prefill and (s in traced) == chosen]
+    for name in ("traced", "guard", "untraced"):
+        ids = [s for s, (_, prefill) in steps.items() if not prefill and group(s) == name]
         if ids:
             linked[name] = {"decode_steps": len(ids),
                             "kernels_median": statistics.median(per_step[s]["kernel"] for s in ids),
@@ -129,10 +134,15 @@ def summarize(run: Path) -> dict:
         if values:
             kernel_span[name] = {"decode_steps": len(values), "median": round(statistics.median(values), 2),
                                  "p90": round(values[int(0.9 * (len(values) - 1))], 2), "max": round(values[-1], 1)}
+    values = sorted((spans[s][1] - spans[s][0]) / 1e6 for s in spans
+                    if s in steps and not steps[s][1] and group(s) == "guard")
+    if values:
+        kernel_span["guard"] = {"decode_steps": len(values), "median": round(statistics.median(values), 2),
+                                "p90": round(values[int(0.9 * (len(values) - 1))], 2), "max": round(values[-1], 1)}
     launch_us = defaultdict(list)
     for corr, duration in launches:
         if corr in corr_step:
-            launch_us["traced" if corr_step[corr] in traced else "untraced"].append(duration / 1e3)
+            launch_us[group(corr_step[corr])].append(duration / 1e3)
     out = {"run": run.name, "mode": header.get("mode"), "steps": len(steps),
            "graph_launch_us_median": {k: round(statistics.median(v), 1) for k, v in sorted(launch_us.items())},
            "gpu_records_by_kind": dict(kinds), "untimed_gpu_records_by_kind": dict(untimed),
