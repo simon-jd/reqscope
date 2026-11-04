@@ -57,6 +57,17 @@ prefill, async scheduling):
   CUPTI device buffers halved those (from 503 in the same session); their
   effect on latency is within the noise of five rounds; see
   [Trace mode's own cost](#trace-modes-own-cost).
+- **Sampling kernels costs about what light mode costs, and loses host
+  delays.** Tracing one step in 4 or in 16, or 32-step windows after a
+  slow interval, stays within 1% of no collector on TPOT p50 and p99 at 8
+  and 16 requests/s, where trace mode added 15.5% / 37.1% at 16 in the
+  same session. The trigger still found all 9 GPU bursts (89% of their
+  slow steps) while tracing 4.8% of steps; one in 4 found 9 and one in 16
+  found 8. But no sampled setting named a single engine stop (0 of 9
+  each, against 9 of 9 for trace mode), and on a traced step followed by
+  an untraced one the kernels' recorded end times run late, which inflates
+  periodic sampling's GPU busy times; see
+  [Sampled trace mode](#sampled-trace-mode).
 
 Limits: one model on one GPU at TP = 1, injected causes rather than
 production incidents, synchronization stalls not separated from host delay,
@@ -66,7 +77,8 @@ runs; see [Limitations](#limitations).
 - **vLLM plugin** (`adapter/vllm`): wraps the V2 model runner and the
   scheduler to emit steps, step membership and request lifecycles.
 - **Collector** (`collector/`): the CUPTI library, plus a plugin-only mode
-  with CUPTI never started.
+  with CUPTI never started and a sampled mode that traces kernels on some
+  steps only.
 - **Analyzer and CLI** (`analyzer/`, `cli/`): `blame`, `explain`, `analyze`,
   `diff`, `export-perfetto`, `dump`.
 
@@ -491,6 +503,144 @@ What improved and what did not:
   the efficiency cores and a 1 ms CUPTI flush period both made trace mode
   slower (docs/design-tradeoffs.md).
 
+## Sampled trace mode
+
+`REQSCOPE_MODE=sampled` records what light mode records, without graph
+envelopes, and turns CUPTI's per-kernel tracing on only for the steps it
+picks: one step in `REQSCOPE_TRACE_EVERY` ("1/4", "1/16" below), and/or
+the next `REQSCOPE_TRACE_WINDOW` steps after a step's start-to-start
+interval reaches `REQSCOPE_TRACE_TRIGGER_PERCENT` of the recent median
+("trigger": 150%, 32 steps, no periodic steps). `blame` takes GPU evidence
+only from traced steps: a slow step that was not traced is interference
+if it had prefill and undetermined otherwise
+([docs/design.md](docs/design.md), "Sampled tracing").
+
+All runs below are from one session: the multi-cause benchmark with three
+seeds for each of trace mode, 1/4, 1/16, the trigger and the plugin alone,
+and the open-loop experiment, five rounds at 8 and 16 requests/s, for no
+collector, light, 1/16, 1/4, the trigger and trace mode. The arm order
+rotated per seed and per round, and each run held the GPU lock
+([results/multicause-sampled.json](results/multicause-sampled.json),
+[results/openloop-sampled.json](results/openloop-sampled.json),
+[results/sampled-captures.json](results/sampled-captures.json); host load
+2.05–3.32 and 1.85–6.57). Events are out of 9 per cause and arm; recall is
+over the slow steps of that cause.
+
+| Collector | Steps traced, multi-cause / open loop | TPOT p50 / p99 vs none, 8/s | TPOT p50 / p99 vs none, 16/s | GPU slowdown: events found, step recall | Host delay: events found, step recall | Slow steps outside the windows |
+|---|---|---|---|---|---|---|
+| trace | all | +1.2% / +2.0% | +15.5% / +37.1% | 9, 1.00 (220 of 220) | 9, 1.00 (9 of 9) | 13 |
+| sampled 1/4 | 25% / 25% | +0.4% / +0.4% | +0.4% / +1.0% | 9, 0.26 (58 of 223) | **0**, 0 (0 of 9) | 4 |
+| sampled 1/16 | 6.3% / 6.2% | +0.4% / +0.4% | +0.4% / +1.0% | 8, 0.05 (11 of 220) | **0**, 0 (0 of 9) | 3 |
+| sampled, trigger | 4.8% / 1.2% at 8/s, 1.7% at 16/s | +0.8% / +0.4% | +0.2% / +0.8% | 9, 0.89 (202 of 226) | **0**, 0 (0 of 9) | 8 |
+| light | none | +0.4% / +0.2% | +0.2% / +0.5% | not run | not run | not run |
+| plugin only | none | not run | not run | 0, 0 (218 undetermined) | 0, 0 (0 of 9) | 3 |
+
+"Slow steps outside the windows" includes each run's first slow step, when
+the 16 decodes' own prompts are prefilled together (3 per arm, called
+interference). The rest: trace mode 10, all called host delay; 1/4 one
+and the trigger five, all undetermined (not traced); none for 1/16 and the
+plugin alone.
+
+| Collector | GPU slowdown precision | Traced GPU-burst steps called GPU slowdown | Host-delay verdicts | Traced host-delay steps | Interference: events, recall / precision |
+|---|---|---|---|---|---|
+| trace | 1.00 | 220 of 220 | 9 right of 19 (0.47); 9 of 9 inside the windows | 9, all called host delay | 9, 1.00 / 0.90 |
+| sampled 1/4 | 0.94 (58 of 62) | 58 of 58 | none | 4, all called GPU slowdown | 9, 1.00 / 0.90 |
+| sampled 1/16 | 0.85 (11 of 13) | 11 of 11 | none | 2, both called GPU slowdown | 9, 0.96 / 0.90 |
+| sampled, trigger | 1.00 (202 of 202) | 202 of 202 | none | 0 | 9, 0.93 / 0.90 |
+| plugin only | — | — | none | — | 9, 1.00 / 0.90 |
+
+Open loop, median over five rounds with the range (TPOT is rounded to
+0.01 ms, about 0.2% here):
+
+| Rate | Collector | TTFT p50, ms | TPOT p50, ms | TPOT p99, ms | TPOT p50 / p99 vs none | Steps traced |
+|---|---|---|---|---|---|---|
+| 8/s | none | 21.95 (21.51–22.21) | 5.11 (5.10–5.11) | 5.43 (5.42–5.43) | | |
+| 8/s | light | 22.24 (22.02–22.77) | 5.13 (5.12–5.13) | 5.44 (5.44–5.46) | +0.4% / +0.2% | |
+| 8/s | sampled 1/16 | 22.32 (22.00–22.85) | 5.13 (5.12–5.13) | 5.45 (5.44–5.50) | +0.4% / +0.4% | 6.2% |
+| 8/s | sampled 1/4 | 22.21 (21.96–22.70) | 5.13 (5.13–5.14) | 5.45 (5.45–5.62) | +0.4% / +0.4% | 25.0% |
+| 8/s | sampled, trigger | 22.11 (21.82–22.56) | 5.15 (5.14–5.16) | 5.45 (5.43–5.82) | +0.8% / +0.4% | 1.2% (1.2–4.0%) |
+| 8/s | trace | 22.41 (22.21–22.48) | 5.17 (5.16–5.18) | 5.54 (5.50–5.58) | +1.2% / +2.0% | all |
+| 16/s | none | 22.70 (22.48–22.93) | 5.28 (5.28–5.28) | 6.07 (6.06–6.07) | | |
+| 16/s | light | 23.01 (22.65–23.41) | 5.29 (5.28–5.30) | 6.10 (6.09–6.11) | +0.2% / +0.5% | |
+| 16/s | sampled 1/16 | 23.19 (22.84–23.26) | 5.30 (5.29–5.31) | 6.13 (6.10–6.16) | +0.4% / +1.0% | 6.2% (6.2–6.3%) |
+| 16/s | sampled 1/4 | 22.83 (22.78–23.36) | 5.30 (5.29–5.31) | 6.13 (6.12–6.15) | +0.4% / +1.0% | 25.0% |
+| 16/s | sampled, trigger | 22.92 (22.83–23.45) | 5.29 (5.28–5.30) | 6.12 (6.12–6.13) | +0.2% / +0.8% | 1.7% (0.9–6.7%) |
+| 16/s | trace | 24.83 (24.62–25.02) | 6.10 (6.04–6.29) | 8.32 (7.64–12.35) | +15.5% / +37.1% | all |
+
+What sampling keeps:
+- **Its cost is about light mode's.** Every sampled arm is within 1% of no
+  collector on TPOT p50 and p99 at both rates, where trace mode adds 15.5%
+  / 37.1% at 16 requests/s. It is not free: at 16 requests/s the TPOT p99
+  ranges of 1/4 (6.12–6.15 ms) and the trigger (6.12–6.13 ms) lie above
+  light's (6.09–6.11 ms); 1/16's (6.10–6.16 ms) overlaps it. Per step, in
+  the round-1 open-loop captures, a traced step's graph launch takes
+  216–229 µs, an untraced one 74–86 µs, and light mode's 49 µs (medians);
+  each switch of kernel tracing takes 3.7–4.8 µs on average.
+- **GPU slowdowns, on the steps it traces.** Every traced slow step of a
+  GPU burst was called GPU slowdown. A 300 ms burst slows many
+  consecutive steps, so the windows the trigger opens on its first slow
+  steps cover most of it: it found all 9 bursts and 89% of their slow
+  steps while tracing 4.8% of all steps. Periodic sampling sees about its share of them (26% at 1/4, 5% at
+  1/16) and missed one burst entirely at 1/16.
+- **Interference** needs only step membership, so every arm finds all 9
+  long prompts, as the plugin alone does. At 1/16 and with the trigger, 1
+  and 2 slow steps inside long-prompt windows had no prefill and were not
+  traced, so they are undetermined (recall 0.96 and 0.93).
+
+What it loses:
+- **Every host delay.** No sampled arm named a single engine stop (0 of 9
+  each, against 9 of 9 for trace mode). A 200 ms stop makes one slow
+  step. The trigger opens its window only after that step's long
+  interval, so the stopped step itself is never traced: none of the 9
+  was. Periodic sampling traced 4 of them at 1/4 and 2 at 1/16, and blame
+  called all 6 GPU slowdown, because of the next point; the untraced ones
+  are undetermined.
+- **Late kernel end times on the last traced step before an untraced
+  one.** On a traced decode step followed by an untraced step, the time
+  from its first kernel's start to its last kernel's end is 17–20 ms at
+  1/4 and 54–68 ms at 1/16 (medians in the seed-1 and round-1 captures),
+  against 4.7–5.9 ms when the next step was traced too (inside the
+  trigger's windows). The spans grow with the distance to the next traced
+  step, which suggests that CUPTI records those kernels' ends only when
+  kernel tracing is next turned on (or at a forced flush), not when they
+  finish: the collector turns tracing off at the next step's first push,
+  and under async scheduling a step's kernels run while the engine
+  already prepares the next one. That mechanism is not confirmed; the
+  effect on blame is. The median GPU busy baseline behind its correct
+  GPU-slowdown verdicts is 19.7 ms at 1/4 and 69.9 ms at 1/16, against
+  5.1 ms in trace mode and 5.8 ms with the trigger
+  (`verdict_evidence_medians`), and the 6 traced engine-stop steps were
+  called GPU slowdown, as kernel end times stretched across the stop
+  would make them. So periodic sampling's GPU-slowdown verdicts are right
+  during bursts (precision 0.94 and 0.85) but rest on inflated busy
+  times, and it turns engine stops into GPU slowdowns. The trigger has
+  the problem only on the last step of each window (7 and 9 such steps in
+  its two captures).
+- **Some copy records lose their timestamps.** Sampled mode forces a CUPTI
+  flush every 200 ms at most, and a forced flush returns records of GPU
+  work still running without timestamps: 2.3–3.4% of copies and 0.1–13%
+  of memsets (up to 120 of 906 in a multi-cause run) had none in the
+  sampled captures summarized, against none in light mode's. The flush
+  runs on the writer thread, 0.15–1.16 ms on average and up to 22 ms.
+- **The trigger's share is not fixed.** It traced 0.9–6.7% of steps per
+  open-loop run at 16 requests/s, depending on how many slow intervals
+  the run had.
+
+Two more observations from the same runs:
+- **Trace mode had fewer slow steps of its own than before.** In this
+  session its multi-cause runs had 13 slow steps outside the windows (10
+  called host delay; host-delay precision over all steps 0.47), against
+  231 in the before/after session, with the same trace-mode code (the
+  collector changes since then add sampled mode only) and the same
+  settings. Why is not established; the multi-cause tables above keep the
+  earlier session's numbers.
+- **Why the trigger ignores intervals next to a prefill.** In the round-1
+  open-loop captures, 94–98% of the intervals of a step right after a
+  prefill step reached 1.5 times the running median (752 of 799 with
+  light, 792 of 811 with the trigger), against 4–9 of about 13,760
+  intervals between decode-only steps. Counting them would open a window
+  after nearly every prefill.
+
 ## Analysis speed
 
 `reqscope blame` reads the 23 s, 0.9 GB capture of the interference
@@ -591,6 +741,26 @@ done
 python bench/trace_cost.py results/raw/tracecost-*
 python bench/launch_cost.py --mode trace --out results/raw/launch-cost/decode-trace-1.json
 
+# Sampled mode beside trace mode, light, the plugin alone and no collector:
+# three multi-cause seeds and five open-loop rounds, arm order rotated
+declare -A arm=([off]="--mode off" [light]="--mode light" [plugin]="--mode plugin" [trace]="--mode trace"
+  [s4]="--mode sampled --collector-env REQSCOPE_TRACE_EVERY=4"
+  [s16]="--mode sampled --collector-env REQSCOPE_TRACE_EVERY=16"
+  [trig]="--mode sampled --collector-env REQSCOPE_TRACE_TRIGGER_PERCENT=150 --collector-env REQSCOPE_TRACE_WINDOW=32")
+mc=(trace s4 s16 trig plugin)
+for s in 1 2 3; do for k in 0 1 2 3 4; do a=${mc[$(( (k + s - 1) % 5 ))]}
+  python bench/interference.py multicause ${arm[$a]} --seed $s --out results/raw/multicause-sampled-$a-s$s
+done; done
+ol=(off light s16 s4 trig trace)
+for r in 1 2 3 4 5; do for k in 0 1 2 3 4 5; do a=${ol[$(( (k + r - 1) % 6 ))]}
+  python bench/interference.py openloop ${arm[$a]} --round $r --rates 8,16 --seconds 40 \
+    --out results/raw/openloop-sampled-$a-r$r
+done; done
+python bench/score_causes.py results/raw/multicause-sampled-{trace,s4,s16,trig,plugin}-s?
+python bench/score.py openloop results/raw/openloop-sampled-{off,light,s16,s4,trig,trace}-r?
+python bench/sampled_captures.py results/raw/multicause-sampled-{s4,s16,trig}-s1 \
+  results/raw/openloop-sampled-{light,s16,s4,trig}-r1
+
 # Closed-loop overhead, one server per collector mode
 for m in off light trace; do python bench/interference.py overhead --mode $m --out results/raw/overhead-$m; done
 python bench/score.py overhead results/raw/overhead-{off,light,trace}
@@ -667,11 +837,20 @@ The tests run on CPU. They cover:
   change ([Trace mode's own cost](#trace-modes-own-cost)). The
   `collector_active` flag does not pick these steps out. Its per-kernel
   evidence is for short captures at moderate load.
+- **Sampled mode does not see host delays.** It costs about what light
+  mode costs, but in the multi-cause runs no sampled setting named an
+  engine stop, and the kernel end times of a traced step followed by an
+  untraced one run late, so periodic sampling's GPU busy times are
+  inflated and it calls traced engine stops GPU slowdown
+  ([Sampled trace mode](#sampled-trace-mode)). It is for watching GPU
+  slowdowns and interference cheaply; host delays need trace mode.
 - **A shared host.** The runs shared the machine with other projects' jobs.
   Every run held the GPU lock those jobs share, but host load varied
   (1-minute load average 1.1–4.7 in the first open-loop round, 2.0–3.6 in
   the before/after round, 6.5–10.9 in the first multi-cause round and
-  2.3–3.9 in the second, about 9–10 in the first CUPTI-off pair), and host
+  2.3–3.9 in the second, about 9–10 in the first CUPTI-off pair, and
+  1.85–6.57 and 2.05–3.32 in the sampled-mode open-loop and multi-cause
+  runs), and host
   load changes host-side timings.
 - **No CPU scheduling evidence.** Host-side CPU stalls are reported as
   `between_steps`, without run-queue evidence.

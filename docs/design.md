@@ -42,7 +42,7 @@ before the application creates a context.
 - A control socket (`/tmp/reqscope-PID.sock`) takes `flush`, `dump` (freeze
   the last N seconds into a new directory) and `status`.
 
-Three modes:
+Four modes:
 - **plugin**: CUPTI is never started; only the vLLM plugin's steps,
   membership and request lifecycles are recorded, and the header has no GPU
   clock bound.
@@ -51,9 +51,11 @@ Three modes:
 - **trace**: one record per kernel, including kernels inside graphs. Its
   per-kernel collection changes host timing under load (README, CUPTI-off
   comparison and open-loop overhead).
+- **sampled**: light mode's records without graph envelopes, and one record
+  per kernel on the steps it picks (below, "Sampled tracing").
 
-Both modes record only the driver and runtime APIs that submit work, move
-data or synchronize, enabled one CUPTI callback ID at a time.
+The three CUPTI modes record only the driver and runtime APIs that submit
+work, move data or synchronize, enabled one CUPTI callback ID at a time.
 
 Torch and Triton surround every launch with query calls (`cudaGetDevice`,
 `cuDevicePrimaryCtxGetState`, `cuPointerGetAttribute`). Recording those made
@@ -103,6 +105,63 @@ at 16 requests/s, read by `bench/trace_cost.py`
   drain. The engine thread ran on an efficiency core in 1% of samples and
   waited for a CPU under 0.1% of the time, so CPU contention was not the
   cost on this host at its load during these runs (2–5).
+
+**Sampled tracing.** Sampled mode (`REQSCOPE_MODE=sampled`) keeps light
+mode's API and copy records for every step and turns CUPTI's kernel
+records on only for some steps, so that per-kernel evidence costs about
+what light mode costs:
+- **Which steps.** One in `REQSCOPE_TRACE_EVERY`, and/or the next
+  `REQSCOPE_TRACE_WINDOW` steps (default 32) after a step's start-to-start
+  interval reaches `REQSCOPE_TRACE_TRIGGER_PERCENT` of the upper median of
+  the last 64 such intervals (after 16 of them). With neither set, one step
+  in 16. Only the interval of a step that, like the step before it, had no
+  prefill counts: under async scheduling a step's interval also holds the
+  wait for the previous step's output, and in the open-loop captures
+  94–98% of the intervals of a step right after a prefill step reached 1.5
+  times the median, against 4–9 of about 13,760 between decode-only steps
+  ([results/sampled-captures.json](../results/sampled-captures.json)).
+- **How.** The engine thread decides at the first push of each step id
+  and switches kernel tracing on or off then (3.3–5.2 µs per switch on
+  average); CUPTI decides at launch, so each step gets one granularity. A
+  traced step gets a `TracedStep` record. Graph envelopes are not
+  recorded at all: once kernel tracing had been on, CUPTI gave vLLM's
+  graph launches no graph records again.
+- **Flushing.** With kernel tracing switched at run time, CUPTI holds the
+  engine's activity buffers until a forced flush, so the writer forces one
+  every `REQSCOPE_CUPTI_FLUSH_MS` (200 ms) once three steps have been pushed
+  since the last traced one, or after ten periods. A forced flush returns
+  records of GPU work still running without timestamps: 2.3–3.4% of copy
+  records in the captures summarized had none.
+- **What blame does with it.** Only traced steps give GPU evidence and
+  enter the comparable-step baselines ("Causes", below).
+
+What it trades, from the multi-cause and open-loop runs of the README's
+"Sampled trace mode" section
+([results/multicause-sampled.json](../results/multicause-sampled.json),
+[results/openloop-sampled.json](../results/openloop-sampled.json)):
+
+| Setting | Steps traced | TPOT p50 / p99 vs none at 16 requests/s | GPU bursts found | Engine stops found |
+|---|---|---|---|---|
+| trace mode | all | +15.5% / +37.1% | 9 of 9 | 9 of 9 |
+| one in 4 | 25% | +0.4% / +1.0% | 9 of 9 (26% of their slow steps) | 0 of 9 |
+| one in 16 | 6.2–6.3% | +0.4% / +1.0% | 8 of 9 (5%) | 0 of 9 |
+| trigger 150%, 32 steps | 4.8% (multi-cause), 0.9–6.7% (open loop) | +0.2% / +0.8% | 9 of 9 (89%) | 0 of 9 |
+| light mode | none | +0.2% / +0.5% | not run | not run |
+
+- **Engine stops are lost.** A 200 ms stop makes one slow step. The
+  trigger reacts to that step's interval and traces the steps after it,
+  never the stopped one; periodic sampling traces a stopped step only by
+  chance (6 of 18 at 1/4 and 1/16), and blame called those 6 GPU slowdown.
+- **Kernel end times run late on a traced step followed by an untraced
+  one.** Its kernels' first-start-to-last-end span is 17–20 ms at 1/4
+  and 54–68 ms at 1/16, against 4.7–5.9 ms inside the trigger's windows.
+  This inflates the GPU busy time and baselines of periodic sampling
+  (median baseline 19.7 and 69.9 ms against 5.1 ms in trace mode), and is
+  the likely reason it calls traced engine stops GPU slowdown. The spans grow with the
+  distance to the next traced step, as if CUPTI recorded the ends only
+  when tracing is next turned on or flushed; turning tracing off only once
+  the traced step's GPU work has finished would test that, and has not
+  been tried.
 
 **The vLLM plugin** (`adapter/vllm`) is a `vllm.general_plugins` entry point.
 It wraps:
