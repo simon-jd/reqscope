@@ -1,79 +1,102 @@
 # reqscope: why was this vLLM request slow?
 
 When a request's tokens slow down in a batched LLM server, the cause can be
-another request's prefill sharing the engine step, the GPU running slower or
+another request's prefill in the same engine step, the GPU running slower or
 running someone else's work, or the host failing to keep the GPU fed.
-Serving metrics show that inter-token latency rose; GPU profilers show
-kernels, but not which requests a step served. reqscope records both sides
-of vLLM on one clock and answers, for each slow token: which engine step
-produced it, what else ran in that step, how its time split between GPU and
-host, and what caused the excess.
+Serving metrics show that inter-token latency rose, and GPU profilers show
+kernels, but neither says which requests a step served. reqscope records
+vLLM's engine steps and the GPU work each step launched on one clock, and
+`reqscope blame` names the cause of each slow step.
 
-**How it works.** A vLLM 0.31.0 plugin records every engine step, the
-requests it scheduled and their phase, and each token's time and producing
-step. A CUPTI injection library (C++20, loaded with `CUDA_INJECTION64_PATH`,
-no change to vLLM or PyTorch) tags every kernel and copy with the step that
-launched it, on a clock with a measured error bound; it is optional.
-`reqscope blame` joins the records by ids, names each slow step's cause
+Scope: one RTX 4090, Qwen2.5-1.5B-Instruct, vLLM 0.31.0 with chunked
+prefill and async scheduling, CUDA 13.2; synthetic load with injected causes.
+
+## Results
+
+**What per-kernel GPU data adds is GPU-slowdown detection, and on this
+benchmark nothing else.** A trivial rule (any co-scheduled prefill means
+interference, anything else host delay) gets every interference verdict
+that blame gets. Trace mode also makes slow steps of its own, and blame
+calls them host delay, so its host-delay precision is 0.04. What blame
+gains over the rule is the 223 slow steps during GPU bursts, which the
+rule calls host delay.
+
+All six rows come from one session on 2026-11-01, with the collector of
+commit 3218aeb in trace mode (every kernel traced with CUPTI). Rows 1-5
+are the blind multi-cause benchmark: 3 seeds, 27 injected events (9 long
+prompts, 9 bursts of another process's GPU work, 9 stops of the engine
+process). Row 6 is open-loop load, the median of 5 rounds.
+
+| Measure | reqscope blame | Baseline | Baseline is |
+|---|---|---|---|
+| Host-delay precision, all slow steps | **0.04** (10 of 246) | 0.02 (10 of 469) | trivial rule, same runs |
+| Interference step recall | 0.77 (27 of 35) | 0.77 (27 of 35) | trivial rule, same runs |
+| GPU-slowdown step recall | 1.00 (223 of 223) | 0 (0 of 223) | trivial rule, same runs |
+| Events found (a slow step given the right cause) | 27 of 27 | 18 of 27 | trivial rule, same runs |
+| Slow steps outside the injection windows | **231** | 6 | plugin alone, CUPTI off |
+| TPOT p99 at 16 requests/s | **7.77 ms** | 6.08 ms | no collector |
+
+Files: [results/multicause-after.json](results/multicause-after.json)
+(blame, and both columns of row 5),
+[results/multicause-baselines.json](results/multicause-baselines.json)
+(the trivial rule) and [results/openloop-after.json](results/openloop-after.json)
+(row 6). Other builds and sessions are listed
+[below](#results-from-other-sessions).
+
+## Limitations
+
+- **Trace mode perturbs what it measures**: 231 slow steps of its own
+  against 6 with CUPTI off, and +28% on TPOT p99 (+17% on p50) at 16
+  requests/s.
+- **Nsight Systems does as well.** With the plugin's NVTX step ranges, a
+  GPU-busy-time rule also found all 27 events (3 runs, 2026-11-02).
+- **Sampled mode misses most host delays.** It found 2, 1 and 0 of 9
+  engine stops in its three settings (3 seeds, 2026-11-04).
+- **Narrow validation**: injected causes on one model and one GPU at
+  TP = 1, vLLM 0.31.0 and CUDA 13.2 only. Synchronization stalls count as
+  host delay. The host was shared, and its load varied between runs.
+
+More: [how it works](#how-it-works) and [docs/design.md](docs/design.md),
+[design trade-offs](docs/design-tradeoffs.md),
+[all limitations](#limitations-in-full), the full results from
+[the multi-cause benchmark](#the-multi-cause-benchmark) on, with
+[results/README.md](results/README.md) for each file's runs, build and
+date, [reproducing](#reproduce) and [tests](#tests).
+
+## Results from other sessions
+
+Each line names its session; the sections below have the tables.
+- **Without GPU data** (the session above, plugin alone): blame finds all
+  9 long prompts and calls every GPU burst and engine stop undetermined
+  (0 of 18 events).
+- **Nsight Systems** (2026-11-02, plugin alone under Nsight Systems 2025.6,
+  on a busier host): a GPU-busy-time rule found 27 of 27 events and had 98
+  slow steps of its own. vLLM's per-step log called 6 of the 9 engine-stop
+  steps GPU slowdown.
+- **Single-cause interference** (2026-10-28 with an earlier build, and
+  2026-10-31 with commit 2c85655): the six long prompts are the top six
+  culprits in every run. Per-step precision is 1.00 (18 of 18) in all
+  five runs, and recall 0.69 to 0.86 in the four paired runs with and
+  without CUPTI.
+- **Plugin alone and light mode** (2026-10-31, commit 2c85655, 5 rounds):
+  within 1% of no collector on TPOT p50 and p99 at 8, 16 and 24
+  requests/s.
+- **Sampled trace mode** (2026-11-04, built from commit 1600976, 3 seeds
+  and 5 rounds): +0.4% to +1.1% on TPOT p50 and +1.5% to +6.9% on p99 at
+  16 requests/s. The trigger found 9 of 9 GPU bursts (206 of 228 slow
+  steps) while tracing 5.4% of steps. Trace mode was not rerun in that
+  session.
+
+## How it works
+
+A vLLM 0.31.0 plugin records every engine step, the requests it scheduled
+and their phase, and each token's time and producing step. A CUPTI
+injection library (C++20, loaded with `CUDA_INJECTION64_PATH`, no change to
+vLLM or PyTorch) tags every kernel and copy with the step that launched
+it, on a clock with a measured error bound; it is optional. `reqscope
+blame` joins the records by ids, names each slow step's cause
 (interference, GPU slowdown or host delay) from step membership and GPU
 evidence, and splits interference excess over the co-scheduled prefill.
-
-**Results** (Qwen2.5-1.5B-Instruct on one RTX 4090, vLLM 0.31.0, chunked
-prefill, async scheduling):
-- **It tells causes apart, blind.** During steady decoding, a seeded
-  schedule the analyzer never sees injects 6,000-token prompts, 300 ms
-  bursts of matrix multiplies from a separate CUDA process, and 200 ms stops
-  of the engine process. Over 3 seeds and 27 events, trace-mode blame named
-  the right cause for every event. Per slow step, recall is 0.77 / 1.00 /
-  1.00 for interference / GPU slowdown / host delay, and precision over all
-  slow steps 0.90 / 1.00 / **0.04**: trace mode adds slow steps of its own
-  (231 outside the injection windows), and blame calls almost all of them
-  host delay. Counting only steps inside the windows, host-delay precision
-  is 0.56.
-- **The GPU data's whole contribution is GPU slowdowns.** On the same
-  runs, a trivial rule (any co-scheduled prefill means interference,
-  anything else host delay) gets every interference verdict and every
-  verdict on trace mode's own slow steps the same as blame; with GPU data,
-  blame changes only the 223 steps during GPU bursts, from host delay to
-  GPU slowdown.
-- **Nsight Systems does as well.** In three runs under Nsight Systems,
-  with the plugin's NVTX step ranges, a simple GPU-time rule also named
-  every event's cause, and those runs had 98 slow steps of their own, on
-  a busier host, against trace mode's 231. vLLM's own per-step log separates GPU bursts
-  but calls 6 of 9 engine-stop steps GPU slowdown.
-- **Without GPU data it cannot.** With CUPTI off, blame still finds all 9
-  long prompts but calls every GPU burst and engine stop "undetermined" (0
-  of 18). In a single-cause experiment membership alone is enough: six long
-  prompts against 16 decodes are the top six culprits in every run, with
-  per-step precision 1.00 and recall 0.69–0.86 across four paired runs
-  with and without CUPTI (0.82 in an earlier single run).
-- **Recording steps is free; tracing every kernel is not.** Under open-loop
-  load at 8–24 requests/s, the plugin alone and the light collector stay
-  within 1% of no collector on TPOT p50 and p99 (earlier build). Per-kernel
-  trace mode adds 1.6% / 3.7% to TPOT p50 / p99 at 8 requests/s and 17% /
-  28% at 16 (current build; an earlier build fell behind at 24). It also
-  adds slow steps of its own: 231 outside the injection windows across
-  three trace runs, against 6 with CUPTI off. A faster writer and larger
-  CUPTI device buffers halved those (from 503 in the same session); their
-  effect on latency is within the noise of five rounds; see
-  [Trace mode's own cost](#trace-modes-own-cost).
-- **Sampling kernels costs far less than trace mode, and loses most host
-  delays.** Tracing one step in 4 or in 16, or 32-step windows after a
-  slow interval, adds 0.4–1.1% to TPOT p50 and 1.5–6.9% to p99 at 16
-  requests/s, where trace mode added 15.5% / 37.1% (in an earlier
-  session). The trigger found all 9 GPU bursts (90% of their slow steps)
-  while tracing 5.4% of steps; one in 4 found 9 and one in 16 found 8,
-  every GPU-slowdown verdict right. Engine stops are found only when the
-  stopped step happens to be traced: 2 of 9 at 1/4, 1 at 1/16, none with
-  the trigger, against 9 of 9 for trace mode. Kernel tracing stays on for
-  one step after each traced run, because CUPTI otherwise gave the traced
-  step's kernels the end times of later launches; see
-  [Sampled trace mode](#sampled-trace-mode).
-
-Limits: one model on one GPU at TP = 1, injected causes rather than
-production incidents, synchronization stalls not separated from host delay,
-vLLM 0.31.0 and CUDA 13.2 only, and a shared host whose load varied between
-runs; see [Limitations](#limitations).
 
 - **vLLM plugin** (`adapter/vllm`): wraps the V2 model runner and the
   scheduler to emit steps, step membership and request lifecycles.
@@ -99,9 +122,9 @@ The benchmark writes each event's actual window to `client.json`, which
 gaps by producing step (the decodes run in lockstep) and labels each step
 with the event window it overlaps most, extended by 20 ms, or with "no
 injected cause". The cause rules ([docs/design.md](docs/design.md),
-"Causes") were fixed on a pilot run with another seed. The runs below used
-the current collector, three seeds with trace mode and three with the
-plugin alone, interleaved with three trace runs of the collector before
+"Causes") were fixed on a pilot run with another seed. The runs below are
+the headline table's session (2026-11-01, collector of commit 3218aeb):
+three seeds with trace mode and three with the plugin alone, interleaved with three trace runs of the collector before
 its writer and device-buffer changes (commit 3ee45a6, "before"); host load
 averaged 2.3–3.9 ([results/multicause-after.json](results/multicause-after.json),
 [results/multicause-before.json](results/multicause-before.json)). An
@@ -273,8 +296,9 @@ That entry is the capture's missing end marker: vLLM SIGKILLs EngineCore
 right after the final flush, so no `Finalized` session record is written,
 and the analyzer records the open end as a loss of unknown size.
 
-This run was captured with an earlier build of the collector; the
-comparison below repeats the experiment with the current one.
+This run (2026-10-28) was captured with a build of the collector from
+before this repository's first commit; the comparison below repeats the
+experiment with the collector of commit 2c85655 (2026-10-31).
 
 ## With CUPTI off: what GPU data adds, and what tracing costs
 
@@ -284,7 +308,7 @@ other projects' jobs, so its 1-minute load average is recorded per run.
 
 | Run | Collector | Host load | Slow steps | In-window steps blamed on that prompt (recall) | Precision | Unexplained steps | Excess on long prompts |
 |---|---|---|---|---|---|---|---|
-| headline run (earlier build) | trace | not recorded | 30 | 18 of 22 (0.82) | 1.00 | 11 | 92.9% |
+| run above, 2026-10-28 (earlier build) | trace | not recorded | 30 | 18 of 22 (0.82) | 1.00 | 11 | 92.9% |
 | pair 1 | trace | about 9–10 | 129 | 18 of 25 (0.72) | 1.00 | 110 | 58.5% |
 | pair 1 | plugin only | about 9–10 | 33 | 18 of 21 (0.86) | 1.00 | 14 | 91.9% |
 | pair 2 | trace | 1.7 | 71 | 18 of 26 (0.69) | 1.00 | 52 | 74.9% |
@@ -387,8 +411,8 @@ reqscope export-perfetto RUN            # timeline for ui.perfetto.dev
 ## Overhead
 
 This section covers the plugin alone and light mode, measured with an
-earlier build (commit 2c85655); trace mode's cost with the current build
-is in [Trace mode's own cost](#trace-modes-own-cost).
+earlier build (commit 2c85655); trace mode's cost with the collector of
+commit 3218aeb (2026-11-01) is in [Trace mode's own cost](#trace-modes-own-cost).
 
 **Open loop.** `bench/interference.py openloop`: Poisson arrivals of
 512-token prompts with 128 output tokens at 8, 16 and 24 requests/s, 40 s
@@ -414,7 +438,7 @@ the runs was 1.1–4.7 (per run in [results/openloop.json](results/openloop.json
   with overlapping ranges).
 - **Trace mode of that build** (rows in the same file) fell behind at 24
   requests/s: throughput fell 4.8%, requests queued, and median TTFT rose
-  from 26 to 314 ms. The current build was not run at 24 requests/s.
+  from 26 to 314 ms. Trace mode of 3218aeb was not run at 24 requests/s.
 
 **Closed loop.** `bench/interference.py overhead`: 32 closed-loop clients
 send 512-token prompts and take 128 output tokens each, for 60 s on the
@@ -462,9 +486,9 @@ side by side (docs/design.md, "What trace mode costs the engine";
 - moving to CUPTI's next 3.2 MB device buffer stalled a launch for 1–2 ms
   every few hundred steps; the collector now asks for 32 MB buffers.
 
-Before and after, in the same session: five rounds of the open-loop
+Before and after, in one session (2026-11-01): five rounds of the open-loop
 experiment at 8 and 16 requests/s, with no collector, trace mode as of
-commit 3ee45a6 and the current trace mode in an order rotated each round
+commit 3ee45a6 ("before") and of commit 3218aeb ("now") in an order rotated each round
 ([results/openloop-before.json](results/openloop-before.json),
 [results/openloop-after.json](results/openloop-after.json); host load
 2.0–3.6), and the multi-cause runs above.
@@ -516,7 +540,8 @@ only from traced steps: a slow step that was not traced is interference
 if it had prefill and undetermined otherwise
 ([docs/design.md](docs/design.md), "Sampled tracing").
 
-The runs come from two sessions. The first ran the multi-cause benchmark
+The runs come from two sessions: 2026-11-03 with commit a14b088, and
+2026-11-04 with a build of commit 1600976. The first ran the multi-cause benchmark
 with three seeds for each of trace mode, 1/4, 1/16, the trigger and the
 plugin alone, and the open-loop experiment, five rounds at 8 and 16
 requests/s, for no collector, light, 1/16, 1/4, the trigger and trace mode
@@ -658,7 +683,7 @@ Two more observations from the first session:
   231 in the before/after session, with the same trace-mode code (the
   collector changes since then add sampled mode only) and the same
   settings. Why is not established; the multi-cause tables above keep the
-  earlier session's numbers.
+  2026-11-01 session's numbers.
 - **Why the trigger ignores intervals next to a prefill.** In the round-1
   open-loop captures, 94–98% of the intervals of a step right after a
   prefill step reached 1.5 times the running median (752 of 799 with
@@ -670,7 +695,8 @@ Two more observations from the first session:
 
 `reqscope blame` reads the 23 s, 0.9 GB capture of the interference
 experiment (2.06M records) and reports on it in 10.5 s with 4.1 GB of
-memory: the median of three runs with the current build, on the shared
+memory: the median of three runs with the analyzer of commit fabf15e
+(2026-11-02), on the shared
 host at a load average of 8.8
 ([results/analysis-speed.json](results/analysis-speed.json), from
 `bench/analysis_speed.py`). The one earlier timing in `results/`,
@@ -868,7 +894,7 @@ made there:
   runs load;
 - every number in `results/`.
 
-## Limitations
+## Limitations in full
 
 - **Pinned versions.** CUPTI API 130202 (CUDA 13.2) and vLLM 0.31.0, with
   the V2 model runner, the uni executor and TP = PP = 1. Other versions are
