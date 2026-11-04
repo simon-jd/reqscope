@@ -8,6 +8,9 @@ Per run directory (capture/ and client.json from bench/interference.py):
 - GPU records by kind, how many have no timestamps, and per decode-only
   step (no prefill member) the median kernel and graph records linked to
   traced and to untraced steps;
+- per traced decode-only step, the time from its first kernel's start to
+  its last kernel's end, split by whether the next step was traced too
+  (kernel_span_ms): median, 90th percentile and longest;
 - the median host time of graph launch calls (cuGraphLaunch and
   cudaGraphLaunch API records) on traced and on untraced steps;
 - Loss counts by reason;
@@ -71,7 +74,7 @@ def summarize(run: Path) -> dict:
     steps: dict[int, tuple[int, bool]] = {}
     traced: dict[int, str] = {}
     corr_step: dict[int, int] = {}
-    activities: list[tuple[int, str]] = []
+    activities: list[tuple[int, str, int, int]] = []
     launches: list[tuple[int, int]] = []
     kinds, untimed, losses = Counter(), Counter(), Counter()
     for segment in sorted((run / "capture").glob("segment-*.rqs")):
@@ -92,7 +95,7 @@ def summarize(run: Path) -> dict:
                 kinds[record["kind"]] += 1
                 if not record.get("start") or not record.get("end"):
                     untimed[record["kind"]] += 1
-                activities.append((record["corr"], record["kind"]))
+                activities.append((record["corr"], record["kind"], record.get("start") or 0, record.get("end") or 0))
             elif kind == "ApiCall":
                 name = str(record.get("name") or record.get("cbid", ""))
                 if "GraphLaunch" in name and record.get("end", 0) >= record.get("start", 0):
@@ -102,9 +105,14 @@ def summarize(run: Path) -> dict:
             elif kind == "CollectorStats":
                 stats = record
     per_step: dict[int, Counter] = defaultdict(Counter)
-    for corr, kind in activities:
+    spans: dict[int, tuple[int, int]] = {}
+    for corr, kind, start, end in activities:
         if corr in corr_step:
-            per_step[corr_step[corr]][kind] += 1
+            step = corr_step[corr]
+            per_step[step][kind] += 1
+            if kind == "kernel" and start and end:
+                low, high = spans.get(step, (start, end))
+                spans[step] = (min(low, start), max(high, end))
     sampled = header.get("mode") == "sampled"
     linked = {}
     for name, chosen in (("traced", True), ("untraced", False)):
@@ -114,6 +122,13 @@ def summarize(run: Path) -> dict:
                             "kernels_median": statistics.median(per_step[s]["kernel"] for s in ids),
                             "graphs_median": statistics.median(per_step[s]["graph"] for s in ids),
                             "steps_with_kernels": sum(per_step[s]["kernel"] > 0 for s in ids)}
+    kernel_span = {}
+    for name, chosen in (("next_traced", True), ("next_untraced", False)):
+        values = sorted((spans[s][1] - spans[s][0]) / 1e6 for s in traced
+                        if s in spans and s in steps and not steps[s][1] and (s + 1 in traced) == chosen)
+        if values:
+            kernel_span[name] = {"decode_steps": len(values), "median": round(statistics.median(values), 2),
+                                 "p90": round(values[int(0.9 * (len(values) - 1))], 2), "max": round(values[-1], 1)}
     launch_us = defaultdict(list)
     for corr, duration in launches:
         if corr in corr_step:
@@ -124,7 +139,8 @@ def summarize(run: Path) -> dict:
            "losses": dict(losses), "intervals": intervals(steps)}
     if sampled:
         out.update(trace_sampling=header.get("trace_sampling"), traced_steps=len(traced),
-                   traced_by_reason=dict(Counter(traced.values())), linked_per_decode_step=linked)
+                   traced_by_reason=dict(Counter(traced.values())), linked_per_decode_step=linked,
+                   kernel_span_ms=kernel_span)
         if stats:
             out.update(sampling=stats.get("sampling"), switch_granularity=site(stats, "switch_granularity"),
                        sampled_flush=site(stats, "sampled_flush"))
