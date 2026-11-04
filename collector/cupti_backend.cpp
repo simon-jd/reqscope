@@ -514,7 +514,10 @@ void sample(uint64_t step) noexcept {
 void backend_step_record(uint64_t step, uint64_t t_begin, bool prefill) noexcept {
     if (sampled_mode) sampler.on_step(step, t_begin, prefill);
 }
-uint64_t backend_sampling_triggers() noexcept { return sampled_mode ? sampler.triggers() : 0; }
+SamplingCounts backend_sampling_counts() noexcept {
+    if (!sampled_mode) return {};
+    return {sampler.steps(), sampler.traced(), sampler.triggers()};
+}
 int backend_push(uint64_t step) noexcept {
     mark_engine_thread();
 #ifdef REQSCOPE_HAS_CUPTI

@@ -58,7 +58,7 @@ them.
 | SchedulerSample | runtime and run-queue deltas with resolution_ns; it does not replace Sched |
 | Loss | reason, count; optional seq_range, time_range, count_unit |
 | Session | state, with the backend error or exit signal if any |
-| CollectorStats | sites{name: calls, ns, max_ns, engine_calls}, timestamp_callbacks, cupti_records, cupti_bytes, writer_cpu_ns, writer_sleep_ns, writer_short_bursts, probe_cpu_ns, since_ns, and in sampled mode sampling_triggers; the collector's own time per site, cumulative since `since_ns`, written every second and on flush. `engine_calls` counts calls on a thread that has pushed a step id |
+| CollectorStats | sites{name: calls, ns, max_ns, engine_calls}, timestamp_callbacks, cupti_records, cupti_bytes, writer_cpu_ns, writer_sleep_ns, writer_short_bursts, probe_cpu_ns, since_ns, and in sampled mode sampling{steps, traced, triggers}; the collector's own time per site, cumulative since `since_ns`, written every second and on flush. `engine_calls` counts calls on a thread that has pushed a step id |
 | CollectorActivity | thread, start, end, cupti_records; an interval when the collector's writer thread was busy, from its first record after an idle sleep to the next sleep, written when it lasted at least 200 µs (shorter ones are counted in `writer_short_bursts`) |
 
 ## Losses

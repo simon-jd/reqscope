@@ -424,7 +424,11 @@ public:
             {"writer_short_bursts", short_bursts},
             {"probe_cpu_ns", stats.probe_cpu_ns.load(std::memory_order_relaxed)},
             {"since_ns", started_ns}});
-        if (mode == "sampled") record["sampling_triggers"] = backend_sampling_triggers();
+        if (mode == "sampled") {
+            const auto counts = backend_sampling_counts();
+            record["sampling"] = Json::object({{"steps", counts.steps}, {"traced", counts.traced},
+                                               {"triggers", counts.triggers}});
+        }
         emit(std::move(record), false);
         last_stats = monotonic_ns();
     }

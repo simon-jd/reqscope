@@ -58,7 +58,10 @@ public:
         }
         ++pushes_;
         last_reason_ = reason;
-        if (reason != Reason::none) last_traced_push_.store(pushes_, std::memory_order_relaxed);
+        if (reason != Reason::none) {
+            last_traced_push_.store(pushes_, std::memory_order_relaxed);
+            traced_.fetch_add(1, std::memory_order_relaxed);
+        }
         pushed_.store(pushes_, std::memory_order_relaxed);
         return {reason, true};
     }
@@ -97,6 +100,9 @@ public:
         return raised;
     }
     uint64_t triggers() const { return triggers_; }
+    // Any thread: steps decided so far, and how many of them were traced.
+    uint64_t steps() const { return pushed_.load(std::memory_order_relaxed); }
+    uint64_t traced() const { return traced_.load(std::memory_order_relaxed); }
     uint64_t median_interval() const {
         std::array<uint64_t, kHistory> copy{};
         std::copy(history_.begin(), history_.begin() + count_, copy.begin());
@@ -107,7 +113,7 @@ public:
 
 private:
     SamplerConfig config_;
-    std::atomic<uint64_t> requests_{0}, pushed_{0}, last_traced_push_{0};
+    std::atomic<uint64_t> requests_{0}, pushed_{0}, last_traced_push_{0}, traced_{0};
     // Engine thread only.
     bool started_ = false, window_open_ = false;
     uint64_t last_step_ = 0, pushes_ = 0, seen_requests_ = 0, window_end_ = 0;

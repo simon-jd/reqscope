@@ -31,6 +31,7 @@ void periodic() {
         traced += reason != Reason::none;
     }
     check(traced == 25, "25 of 100 steps traced");
+    check(sampler.steps() == 100 && sampler.traced() == 25, "counts of steps and traced steps");
 }
 
 // The writer's forced flush waits until three steps were pushed after the
