@@ -5,6 +5,58 @@ Qwen2.5-1.5B-Instruct. The raw run directories (capture, `client.json`,
 `server.log`) stay out of the repository under `results/raw/`; the files
 here are derived from them.
 
+## Which file backs which claim
+
+"Run date" is the day the runs were made (host time); "Committed" is the
+commit that added the file, then any that changed it. Section names are
+the README's.
+
+| File | README claim it backs | Run date, collector build | Committed |
+|---|---|---|---|
+| `multicause-after.json` | Results table: blame's column of rows 1–4 and both columns of row 5; "Without GPU data"; the multi-cause benchmark's tables, confusion matrices, verdict evidence medians and `collector_active` counts; "trace, now" in Trace mode's own cost | 2026-11-01, 3218aeb | 3f236f2 (2026-11-01), af9bf54 (2026-11-02) |
+| `multicause-baselines.json` | Results table: the trivial rule's column of rows 1–4; "Against a trivial rule" | the runs of `multicause-after.json`, rescored | 6e1bf24 (2026-11-02) |
+| `openloop-after.json` | Results table row 6; Limitations: trace mode's +28% on TPOT p99 and +17% on p50 at 16 requests/s; "trace, now" and no-collector rows in Trace mode's own cost | 2026-11-01, 3218aeb | 3f236f2 (2026-11-01) |
+| `multicause-before.json` | Trace mode's own cost: "trace, before", 503 slow steps outside the windows, precision 0.03 (15 of 511) | 2026-11-01, 3ee45a6 | 3f236f2 (2026-11-01) |
+| `openloop-before.json` | Trace mode's own cost: the "trace, before" rows | 2026-11-01, 3ee45a6 | 3f236f2 (2026-11-01) |
+| `openloop-trace-cost.json` | Trace mode's own cost: launches over 100 µs in round 1, 104,247 before and 11,277 after | 2026-11-01, 3ee45a6 and 3218aeb | 3f236f2 (2026-11-01) |
+| `multicause-nsys.json` | Limitations: "Nsight Systems does as well"; Results from other sessions; "Against Nsight Systems and vLLM's own step log" | 2026-11-02, plugin only (build not recorded) | 7972521 (2026-11-02) |
+| `multicause.json` | The multi-cause benchmark: the earlier round on a busier host, cited but not tabulated | 2026-10-31, 60fca57 | 3ee45a6 (2026-11-01) |
+| `multicause-sampled.json` | Sampled trace mode, first session: the multi-cause rows of "What it changed", left of the arrows; trace mode's 220 of 220 burst steps and 9 right of 19 host-delay verdicts; its 13 slow steps outside the windows | 2026-11-03, a14b088 | 4d62d64 (2026-11-03) |
+| `openloop-sampled.json` | Sampled trace mode, first session: the light and trace arms (+15.5% / +37.1% at 16 requests/s) and the TPOT row of "What it changed", left of the arrows | 2026-11-03, a14b088 | 4d62d64 (2026-11-03) |
+| `sampled-captures.json` | Sampled trace mode, first session: kernel spans and steps traced before the guard step, light mode's 49 µs graph launch, copies without timestamps (2.3–3.4%), and why the trigger ignores intervals after a prefill (752 of 799, 792 of 811) | 2026-11-03, a14b088 | 4d62d64 (2026-11-03) |
+| `multicause-sampled-guard.json` | Limitations: "Sampled mode misses most host delays"; the multi-cause table of the second session and the multi-cause rows of "What it changed", right of the arrows | 2026-11-04, built from 1600976 | eba36e3 (2026-11-04) |
+| `openloop-sampled-guard.json` | Results from other sessions: sampled mode's TPOT cost; the open-loop table of the second session and the TPOT row of "What it changed", right of the arrows | 2026-11-04, built from 1600976 | eba36e3 (2026-11-04) |
+| `sampled-captures-guard.json` | Sampled trace mode, second session: kernel spans after the guard step, launch times on traced and guard steps (213–254 µs), late end times where the guard step runs other graphs (10 of 1,498; 119 of 3,600), copies without timestamps (2.4–3.5%) | 2026-11-04, built from 1600976 | eba36e3, 99c2990 (both 2026-11-04) |
+| `openloop.json` | Overhead, open loop: the plugin alone and light mode within 1% of no collector; trace mode of that build fell behind at 24 requests/s | 2026-10-31, 2c85655 | 78dbd41 (2026-10-31) |
+| `ablation.json` | With CUPTI off: the paired-run table; Results from other sessions: "Single-cause interference" | 2026-10-28 (earlier build) and 2026-10-31 (2c85655, the pairs) | 0d0ad6c (2026-10-31) |
+| `interference.json` | The interference experiment's table: top six culprits, excess shares, clock bound, records linked and lost | 2026-10-28, a build from before the first commit | 43734aa (2026-10-30) |
+| `interference-blame.json` | blame's own report on that run, plotted in `docs/slow-steps.svg` | 2026-10-28, as above | 43734aa (2026-10-30) |
+| `interference-steps.json` | The interference experiment: per-step precision 1.00 (18 of 18) and recall 0.82 (18 of 22) | 2026-10-28, as above | 43734aa (2026-10-30), 0cbf3dd (2026-10-31) |
+| `captures.json` | The interference experiment: 2.06M records, 0 lost; Overhead, closed loop: trace written per mode; Limitations in full: four record types make up 99% of a trace | 2026-10-28, as above | 43734aa (2026-10-30) |
+| `overhead.json` | Overhead, closed loop: throughput, TTFT and TPOT per mode | 2026-10-28, as above | 43734aa (2026-10-30) |
+| `trace-cost.json` | Trace mode's own cost: the collector's share of the engine thread, 277 against 72 µs decode-graph launches, the writer's 0.33 and 0.10 cores, device-buffer stalls | 2026-11-01, 8b4670e and the text-writer builds | 1e8fbcf (2026-11-01) |
+| `launch-cost.json` | docs/design.md: device-buffer stalls in decode-like steps without vLLM, 21 with 3.2 MB buffers and 1 with 32 MB in 5,000 steps | 2026-11-01, per run (`collector` label) | 1e8fbcf (2026-11-01) |
+| `analysis-speed.json` | Analysis speed: 10.5 s and 4.1 GB for blame on the 0.9 GB capture | 2026-11-02, analyzer of fabf15e | 5f26db6 (2026-11-02) |
+| `environment.json` | Reproduce: the versions behind the committed results | the host | a5360c7 (2026-10-31) |
+| `../docs/slow-steps.svg` | The interference experiment's figure | from `interference-s5` | 30405a4 (2026-10-31) |
+
+## Host load per session
+
+| Run date | Runs | 1-minute load average |
+|---|---|---|
+| 2026-10-28 | `interference-s5` | not recorded |
+| 2026-10-31 | CUPTI-off pair 1 / pair 2 | about 9–10 / 1.7–1.9 |
+| 2026-10-31 | `openloop-*` (2c85655) | 1.1–4.7 |
+| 2026-10-31 | `multicause-*` (60fca57) | 6.5–10.9 |
+| 2026-11-01 | `openloop-before-*`, `openloop-after-*` | 2.0–3.6 |
+| 2026-11-01 | `multicause-before-*`, `multicause-after-*` | 2.3–3.9 |
+| 2026-11-02 | `multicause-nsys-*` | 5.8–8.9 |
+| 2026-11-02 | `analysis-speed.json` | 8.8 |
+| 2026-11-03 | `multicause-sampled-*` / `openloop-sampled-*` | 2.05–3.32 / 1.85–6.57 |
+| 2026-11-04 | `multicause-guard-*` / `openloop-guard-*` | 3.70–7.44 / 2.38–13.14 |
+
+## How each file was produced
+
 | File | Runs | Produced by |
 |---|---|---|
 | `interference.json` | `interference-s5` | `bench/score.py interference` |
