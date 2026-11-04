@@ -123,9 +123,36 @@ what light mode costs:
 - **How.** The engine thread decides at the first push of each step id
   and switches kernel tracing on or off then (3.3–5.2 µs per switch on
   average); CUPTI decides at launch, so each step gets one granularity. A
-  traced step gets a `TracedStep` record. Graph envelopes are not
-  recorded at all: once kernel tracing had been on, CUPTI gave vLLM's
-  graph launches no graph records again.
+  traced step gets a `TracedStep` record. Kernel tracing goes off one
+  step late: the step after each run of traced steps (the guard step)
+  launches with it on, gets no `TracedStep` record, and its node records
+  are not used (next bullet). Graph envelopes are not recorded at all:
+  once kernel tracing had been on, CUPTI gave vLLM's graph launches no
+  graph records again.
+- **Why the guard step.** When kernel tracing is off at a CUDA graph's
+  next launch, CUPTI's records of the graph's last traced launch get the
+  end times of later launches: each kernel's start is right, but its end
+  is the same node's end in the last launch before tracing came back on
+  or a forced flush read the records. On `fixtures/dag/sampled_replay.cu`
+  (one graph of eight 100 µs kernels per step, one step in 4 traced)
+  every traced kernel was recorded as 2.52 ms long, 12.2 ms at one in 16
+  (`tests/test_sampled_replay.py` fails that way without the guard step).
+  In vLLM, a traced decode step followed by an untraced one spanned
+  17–20 ms at 1/4 and 54–68 ms at 1/16 from its first kernel's start to
+  its last kernel's end, against 4.7–5.9 ms when the next step was traced
+  too ([results/sampled-captures.json](../results/sampled-captures.json)).
+  A traced launch in between leaves the earlier records alone, and the
+  guard step's own records take the late ends instead (median span 12.8–
+  15.2 ms at 1/4, 40–60 ms at 1/16). Why CUPTI does this was not looked
+  into beyond these records. The guard step protects a traced step only
+  when it launches the same graphs: in the round-1 open-loop captures, 119
+  of 3,600 traced decode steps at 1/4 and 39 of 906 at 1/16 still spanned
+  over 10 ms (up to 7.3 s), and in 115 and 36 of them the next step
+  launched none of their graphs (110 and 32 had prefill)
+  ([results/sampled-captures-guard.json](../results/sampled-captures-guard.json)).
+  Each guard step costs a traced step's graph launch (209–254 µs against
+  81–94 µs untraced, medians), so one in 4 now traces kernels on half the
+  steps.
 - **Flushing.** With kernel tracing switched at run time, CUPTI holds the
   engine's activity buffers until a forced flush, so the writer forces one
   every `REQSCOPE_CUPTI_FLUSH_MS` (200 ms) once three steps have been pushed
@@ -133,35 +160,41 @@ what light mode costs:
   records of GPU work still running without timestamps: 2.3–3.4% of copy
   records in the captures summarized had none.
 - **What blame does with it.** Only traced steps give GPU evidence and
-  enter the comparable-step baselines ("Causes", below).
+  enter the comparable-step baselines ("Causes", below). The analyzer
+  drops the node records of untraced steps (in practice the guard
+  steps') right after reading a sampled capture; blame's `sampled_steps`
+  counts them.
 
 What it trades, from the multi-cause and open-loop runs of the README's
-"Sampled trace mode" section
+"Sampled trace mode" section. The sampled rows are from the second
+session, with the guard step
+([results/multicause-sampled-guard.json](../results/multicause-sampled-guard.json),
+[results/openloop-sampled-guard.json](../results/openloop-sampled-guard.json));
+trace and light mode were not rerun, so their rows are from the first
 ([results/multicause-sampled.json](../results/multicause-sampled.json),
-[results/openloop-sampled.json](../results/openloop-sampled.json)):
+[results/openloop-sampled.json](../results/openloop-sampled.json)), each
+against no collector in its own session:
 
-| Setting | Steps traced | TPOT p50 / p99 vs none at 16 requests/s | GPU bursts found | Engine stops found |
+| Setting | Steps traced (kernel tracing on) | TPOT p50 / p99 vs none at 16 requests/s | GPU bursts found | Engine stops found |
 |---|---|---|---|---|
 | trace mode | all | +15.5% / +37.1% | 9 of 9 | 9 of 9 |
-| one in 4 | 25% | +0.4% / +1.0% | 9 of 9 (26% of their slow steps) | 0 of 9 |
-| one in 16 | 6.2–6.3% | +0.4% / +1.0% | 8 of 9 (5%) | 0 of 9 |
-| trigger 150%, 32 steps | 4.8% (multi-cause), 0.9–6.7% (open loop) | +0.2% / +0.8% | 9 of 9 (89%) | 0 of 9 |
+| one in 4 | 25% (50%) | +1.1% / +6.9% | 9 of 9 (26% of their slow steps) | 2 of 9 |
+| one in 16 | 6.3% (12.5%) | +0.4% / +3.1% | 8 of 9 (5%) | 1 of 9 |
+| trigger 150%, 32 steps | 5.4% (multi-cause), 0.8–7.0% (open loop) | +0.4% / +1.5% | 9 of 9 (90%) | 0 of 9 |
 | light mode | none | +0.2% / +0.5% | not run | not run |
 
-- **Engine stops are lost.** A 200 ms stop makes one slow step. The
-  trigger reacts to that step's interval and traces the steps after it,
-  never the stopped one; periodic sampling traces a stopped step only by
-  chance (6 of 18 at 1/4 and 1/16), and blame called those 6 GPU slowdown.
-- **Kernel end times run late on a traced step followed by an untraced
-  one.** Its kernels' first-start-to-last-end span is 17–20 ms at 1/4
-  and 54–68 ms at 1/16, against 4.7–5.9 ms inside the trigger's windows.
-  This inflates the GPU busy time and baselines of periodic sampling
-  (median baseline 19.7 and 69.9 ms against 5.1 ms in trace mode), and is
-  the likely reason it calls traced engine stops GPU slowdown. The spans grow with the
-  distance to the next traced step, as if CUPTI recorded the ends only
-  when tracing is next turned on or flushed; turning tracing off only once
-  the traced step's GPU work has finished would test that, and has not
-  been tried.
+- **Engine stops are mostly lost.** A 200 ms stop makes one slow step.
+  The trigger reacts to that step's interval and traces the steps after
+  it, never the stopped one; periodic sampling traces a stopped step only
+  by chance (3 of 18 at 1/4 and 1/16 with the guard step, 6 of 18
+  before). With the guard step blame called all 3 host delay; before it,
+  the late end times made it call all 6 GPU slowdown.
+- **The guard step costs.** At 16 requests/s the TPOT p99 of every
+  sampled arm lay above no collector's in every round, most for one in 4
+  (6.17–7.14 ms against 6.05–6.08). The first session had 1/4 at +0.4% /
+  +1.0%, but host load was higher and more varied in the second (2.4–13.1
+  against 1.9–6.6), so how much of the difference is the guard step is
+  not separated.
 
 **The vLLM plugin** (`adapter/vllm`) is a `vllm.general_plugins` entry point.
 It wraps:

@@ -30,7 +30,7 @@ here are derived from them.
 | `sampled-captures.json` | `multicause-sampled-{s4,s16,trig}-s1` and `openloop-sampled-{light,s16,s4,trig}-r1` | `bench/sampled_captures.py` |
 | `multicause-sampled-guard.json` | `multicause-guard-{s4,s16,trig}-s1` to `-s3` | `bench/score_causes.py`, as for `multicause-sampled.json` |
 | `openloop-sampled-guard.json` | `openloop-guard-{off,s16,s4,trig}-r1` to `-r5` | `bench/score.py openloop` |
-| `sampled-captures-guard.json` | `multicause-guard-{s4,s16,trig}-s1` and `openloop-guard-{s16,s4,trig}-r1` | `bench/sampled_captures.py` of commit a21d637 (guard steps in their own group) |
+| `sampled-captures-guard.json` | `multicause-guard-{s4,s16,trig}-s1` and `openloop-guard-{s16,s4,trig}-r1` | `bench/sampled_captures.py` of commit 99c2990 (guard steps in their own group, and long spans counted) |
 
 Notes:
 
